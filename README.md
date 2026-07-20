@@ -1,0 +1,84 @@
+# rational-use (`ruse`)
+
+Orchestrate deterministic scripts and LLM prompts from a single recipe — and
+**spend tokens only where judgment is actually needed.**
+
+A *recipe* is a plain JS module that default-exports an async function. The
+runtime hands it a small toolkit. Deterministic helpers (`ask`, `run`, `sh`)
+are free; `prompt`/`agent` are the only calls that hit an LLM, so they stay
+explicit and auditable.
+
+```js
+export default async function ({ ask, run, sh, prompt, agent, handoff, use, state }) {
+  const file = await ask('Which file?', { choices: ['a.md', 'b.md'] });
+  const text = await sh(`cat "${file}"`);              // deterministic
+  const { text: summary } = await prompt('prompts/summarize.md', {
+    model: 'haiku',                                    // per-step model choice
+    input: text,
+  });                                                  // <- only token spend
+  console.log(summary);
+}
+```
+
+## Run
+
+```bash
+ruse init                                        # scaffold .ruse/ into a project
+ruse run examples/summarize.recipe.mjs           # run it
+ruse run examples/summarize.recipe.mjs --dry-run # skip LLM calls, show what would cost
+ruse run recipe.mjs -- --arg1 value              # pass args (kit.args)
+```
+
+`ruse init [dir]` drops a ready-to-edit `.ruse/` folder (recipe + reusable
+script + prompt) into a project without overwriting anything that exists.
+
+## The toolkit
+
+| Helper | Cost | What it does |
+|---|---|---|
+| `ask(q, {choices, default})` | free | Prompt the user on stdin. |
+| `run(path, {args, input, env})` | free | Run a `.js/.mjs/.sh/.ps1/.py` script; returns stdout. |
+| `sh(cmd, {input, env})` | free | Run an inline shell command; returns stdout. |
+| `prompt(textOrFile, {model, agent, skill, sessionId, input, allowedTools, permissionMode})` | **LLM** | One Claude turn. `.md/.txt` paths load as the prompt body. |
+| `agent(name, text, opts)` | **LLM** | `prompt` shorthand that runs as a named agent. |
+| `use(path)` | free | Import helpers/data from another module for reuse. |
+| `handoff(recipe, extraState)` | — | Run another recipe, sharing `state`. |
+| `state` | — | Mutable object threaded across steps and handoffs. |
+| `kit.args` | — | Args passed after `--`. |
+
+## How LLM steps work
+
+Each `prompt`/`agent` shells out to your installed `claude` CLI
+(`claude -p --output-format json`), so recipes inherit your existing auth,
+skills, MCP servers, and settings. Options map to real flags:
+`model → --model`, `agent → --agent`, `sessionId → --resume` (share context
+between prompts), `skill` prepends `/skill-name`, `input` is appended to the
+prompt body. Every call is counted and its cost summarized at the end.
+
+## Structured output
+
+Pass a JSON Schema as `schema` and `prompt`/`agent` return a parsed, validated
+object on `res.data` — so LLM output flows straight into deterministic code:
+
+```js
+const { data } = await prompt('Extract the person from that bio', {
+  model: 'haiku',
+  input: bioText,
+  schema: {
+    type: 'object',
+    required: ['name', 'age'],
+    properties: { name: { type: 'string' }, age: { type: 'number' } },
+  },
+});
+console.log(data.name, data.age + 1);   // real number, not a string
+```
+
+The runtime appends the schema to the prompt, strips any code fences from the
+reply, parses it, and does a light structural check (type + required fields).
+On a mismatch it makes **one** self-correcting retry (resuming the same
+session) before throwing — both attempts are counted in the ledger.
+
+## Design principle
+
+Deterministic first. An LLM call is a deliberate, visible line in the recipe —
+never the default way to move data from one step to the next.

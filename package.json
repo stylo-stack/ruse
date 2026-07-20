@@ -1,0 +1,19 @@
+{
+  "name": "rational-use",
+  "version": "0.1.0",
+  "description": "Orchestrate deterministic scripts and LLM prompts from one recipe. Spend tokens only where judgment is actually needed.",
+  "type": "module",
+  "bin": {
+    "ruse": "src/cli.mjs"
+  },
+  "exports": {
+    "./kit": "./src/runtime.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "example": "node src/cli.mjs run examples/summarize.recipe.mjs"
+  },
+  "license": "MIT"
+}

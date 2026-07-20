@@ -13,7 +13,12 @@
     "node": ">=18"
   },
   "scripts": {
-    "example": "node src/cli.mjs run examples/summarize.recipe.mjs"
+    "example": "node src/cli.mjs run examples/summarize.recipe.mjs",
+    "test": "echo \"No tests yet\" && exit 0",
+    "lint": "echo \"No linting yet\" && exit 0",
+    "translations:sort:fix": "echo \"No translations yet\" && exit 0",
+    "check-types": "echo \"No types yet\" && exit 0",
+    "format:write": "echo \"No formatting yet\" && exit 0"
   },
   "license": "MIT"
 }

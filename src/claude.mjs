@@ -17,7 +17,7 @@ import { spawn } from 'node:child_process';
  * @param {string} [opts.permissionMode] 'default'|'acceptEdits'|'auto'|'bypassPermissions'
  * @param {string} [opts.cwd]            Working directory for the turn.
  * @param {string[]} [opts.addDir]       Extra directories Claude may access.
- * @returns {Promise<{text:string, sessionId:string, costUsd:number, raw:object}>}
+ * @returns {Promise<{text:string, sessionId:string, costUsd:number, usage:object, raw:object}>}
  */
 export function claude(promptText, opts = {}) {
   const args = ['-p', '--output-format', 'json'];
@@ -52,13 +52,20 @@ export function claude(promptText, opts = {}) {
         json = JSON.parse(stdout);
       } catch {
         // --output-format json should always be JSON; fall back to raw text.
-        resolve({ text: stdout.trim(), sessionId: '', costUsd: 0, raw: {} });
+        resolve({ text: stdout.trim(), sessionId: '', costUsd: 0, usage: emptyUsage(), raw: {} });
         return;
       }
+      const u = json.usage ?? {};
       resolve({
         text: json.result ?? json.text ?? '',
         sessionId: json.session_id ?? '',
         costUsd: json.total_cost_usd ?? 0,
+        usage: {
+          input: u.input_tokens ?? 0,
+          output: u.output_tokens ?? 0,
+          cacheRead: u.cache_read_input_tokens ?? 0,
+          cacheCreation: u.cache_creation_input_tokens ?? 0,
+        },
         raw: json,
       });
     });
@@ -66,4 +73,8 @@ export function claude(promptText, opts = {}) {
     child.stdin.write(promptText);
     child.stdin.end();
   });
+}
+
+function emptyUsage() {
+  return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
 }

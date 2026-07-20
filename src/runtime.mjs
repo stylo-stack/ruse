@@ -15,10 +15,29 @@ export class Ledger {
     this.scriptSteps = 0;
     this.llmCalls = 0;
     this.costUsd = 0;
+    this.inputTokens = 0;
+    this.outputTokens = 0;
+    this.cacheReadTokens = 0;
+    this.cacheCreationTokens = 0;
+  }
+  addUsage(usage) {
+    if (!usage) return;
+    this.inputTokens += usage.input ?? 0;
+    this.outputTokens += usage.output ?? 0;
+    this.cacheReadTokens += usage.cacheRead ?? 0;
+    this.cacheCreationTokens += usage.cacheCreation ?? 0;
+  }
+  totalTokens() {
+    return this.inputTokens + this.outputTokens + this.cacheReadTokens + this.cacheCreationTokens;
   }
   summary() {
-    return `${this.scriptSteps} script step(s), ${this.llmCalls} LLM call(s)` +
-      (this.costUsd ? `, ~$${this.costUsd.toFixed(4)}` : '');
+    const parts = [`${this.scriptSteps} script step(s)`, `${this.llmCalls} LLM call(s)`];
+    const total = this.totalTokens();
+    if (total) {
+      parts.push(`${total.toLocaleString()} tokens (in ${this.inputTokens.toLocaleString()}, out ${this.outputTokens.toLocaleString()}, cache ${(this.cacheReadTokens + this.cacheCreationTokens).toLocaleString()})`);
+    }
+    if (this.costUsd) parts.push(`~$${this.costUsd.toFixed(4)}`);
+    return parts.join(', ');
   }
 }
 
@@ -103,13 +122,21 @@ export function makeKit(cfg) {
     }
     if (dryRun) {
       log(`[dry-run] would call LLM (model=${opts.model ?? 'default'}${opts.agent ? `, agent=${opts.agent}` : ''}${opts.schema ? ', schema' : ''})`);
-      return { text: '', data: opts.schema ? null : undefined, sessionId: opts.sessionId ?? '', costUsd: 0, raw: {} };
+      return { text: '', data: opts.schema ? null : undefined, sessionId: opts.sessionId ?? '', costUsd: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }, raw: {} };
     }
     ledger.llmCalls++;
     // LLM steps run at the project root (process.cwd) by default so Claude sees
     // the project's files/CLAUDE.md. Prompt *files* already resolved via rel().
-    let res = await claude(text, { cwd: process.cwd(), ...opts });
+    const label = spinnerLabel(opts);
+    const stop = startSpinner(label);
+    let res;
+    try {
+      res = await claude(text, { cwd: process.cwd(), ...opts });
+    } finally {
+      stop();
+    }
     ledger.costUsd += res.costUsd;
+    ledger.addUsage(res.usage);
 
     if (opts.schema) {
       let parsed = tryParse(res.text, opts.schema);
@@ -117,12 +144,19 @@ export function makeKit(cfg) {
         // One self-correcting retry, resuming the same session for context.
         log(`schema parse failed (${parsed.error}); asking model to fix…`);
         ledger.llmCalls++;
-        const fix = await claude(
-          `Your previous reply did not parse as JSON matching the schema: ${parsed.error}.\n` +
-            `Resend ONLY the corrected JSON value — no prose, no fences.`,
-          { cwd: process.cwd(), ...opts, sessionId: res.sessionId },
-        );
+        const stop2 = startSpinner(`${label} (retry)`);
+        let fix;
+        try {
+          fix = await claude(
+            `Your previous reply did not parse as JSON matching the schema: ${parsed.error}.\n` +
+              `Resend ONLY the corrected JSON value — no prose, no fences.`,
+            { cwd: process.cwd(), ...opts, sessionId: res.sessionId },
+          );
+        } finally {
+          stop2();
+        }
         ledger.costUsd += fix.costUsd;
+        ledger.addUsage(fix.usage);
         res = fix;
         parsed = tryParse(res.text, opts.schema);
         if (parsed.error) throw new Error(`Could not get valid structured output: ${parsed.error}\nRaw:\n${res.text}`);
@@ -182,6 +216,43 @@ function tryParse(text, schema) {
     if (!(key in value)) return { error: `missing required field "${key}"` };
   }
   return { value };
+}
+
+function spinnerLabel(opts) {
+  const who = opts.agent ? `agent:${opts.agent}` : 'llm';
+  const model = opts.model ?? 'default';
+  return `${who} thinking (model=${model})`;
+}
+
+/**
+ * Show progress while an LLM call is in flight. Writes to stderr so it never
+ * mixes with a recipe's real stdout output. Animates on a TTY; falls back to
+ * one static line when piped/redirected (CI, logs). Returns a stop() that
+ * clears the line and reports the elapsed time.
+ */
+function startSpinner(label) {
+  const out = process.stderr;
+  const start = Date.now();
+  if (!out.isTTY) {
+    out.write(`… ${label}\n`);
+    return () => {
+      const secs = ((Date.now() - start) / 1000).toFixed(1);
+      out.write(`✓ ${label} (${secs}s)\n`);
+    };
+  }
+  const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+  let i = 0;
+  const render = () => {
+    const secs = ((Date.now() - start) / 1000).toFixed(1);
+    out.write(`\r\x1b[2K${frames[i++ % frames.length]} ${label} ${secs}s`);
+  };
+  render();
+  const timer = setInterval(render, 80);
+  return () => {
+    clearInterval(timer);
+    const secs = ((Date.now() - start) / 1000).toFixed(1);
+    out.write(`\r\x1b[2K✓ ${label} (${secs}s)\n`);
+  };
 }
 
 function execCapture(cmd, argv, opts) {

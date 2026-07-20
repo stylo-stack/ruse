@@ -8,12 +8,14 @@
     "COMPREPLY",
     "cword",
     "CWORD",
+    "dogfooding",
     "fpath",
     "interp",
     "mkdirs",
     "mjs",
     "pnpm",
     "ruse",
+    "scaffolder",
     "stylo"
   ]
 }

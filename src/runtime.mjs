@@ -192,10 +192,18 @@ function execCapture(cmd, argv, opts) {
       stdio: ['pipe', 'pipe', 'inherit'],
     });
     let out = '';
-    child.stdout.on('data', (d) => (out += d));
+    child.stdout.on('data', (d) => {
+      out += d;
+      if (opts.stream) process.stdout.write(d);
+    });
     child.on('error', (e) => rej(new Error(`Failed to run ${cmd}: ${e.message}`)));
     child.on('close', (code) => {
-      if (code !== 0) return rej(new Error(`${cmd} exited with code ${code}`));
+      if (code !== 0) {
+        const err = new Error(`${cmd} exited with code ${code}`);
+        err.output = out.trim();
+        err.exitCode = code;
+        return rej(err);
+      }
       res(out.trim());
     });
     if (opts.input != null) child.stdin.write(String(opts.input));

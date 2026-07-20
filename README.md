@@ -24,13 +24,59 @@ export default async function ({ ask, run, sh, prompt, agent, handoff, use, stat
 
 ```bash
 ruse init                                        # scaffold .ruse/ into a project
-ruse run examples/summarize.recipe.mjs           # run it
-ruse run examples/summarize.recipe.mjs --dry-run # skip LLM calls, show what would cost
-ruse run recipe.mjs -- --arg1 value              # pass args (kit.args)
+ruse run summarize                               # short name — resolves .ruse/summarize.recipe.mjs
+ruse run summarize --dry-run                     # skip LLM calls, show what would cost
+ruse run summarize -- --arg1 value               # pass args (kit.args)
+ruse run examples/summarize.recipe.mjs           # explicit path still works
+ruse recipes                                     # list every recipe visible from cwd
+ruse completion zsh                              # print a shell completion script
 ```
+
+`ruse run <name>` looks for the recipe in this order — **project always
+shadows global**:
+
+1. Nearest `.ruse/<name>.recipe.mjs` (or `<name>.mjs`) walking up from cwd.
+2. `<user-recipes>/<name>.recipe.mjs` (or `<name>.mjs`).
+
+If the argument is an existing file path, that wins — long-form paths still
+work unchanged.
 
 `ruse init [dir]` drops a ready-to-edit `.ruse/` folder (recipe + reusable
 script + prompt) into a project without overwriting anything that exists.
+
+## Global (user-scope) recipes
+
+Drop a recipe into `<user-recipes>` and it's runnable from anywhere,
+without any `.ruse/` folder in the project. `<user-recipes>` is:
+
+| Precedence | Location |
+|---|---|
+| 1 | `$RUSE_HOME/recipes` (if `RUSE_HOME` is set) |
+| 2 | `$XDG_CONFIG_HOME/ruse/recipes` |
+| 3 | `~/.config/ruse/recipes` |
+
+To install a recipe globally, just copy it:
+
+```bash
+mkdir -p ~/.config/ruse/recipes
+cp my-recipe.recipe.mjs ~/.config/ruse/recipes/
+ruse run my-recipe        # now works from anywhere
+```
+
+`ruse recipes` lists every visible recipe grouped by scope — useful to see
+which name would win when both scopes define one.
+
+## Shell completion
+
+`ruse completion <bash|zsh|fish>` prints a completion script to stdout that
+completes both top-level subcommands and (after `ruse run`) recipe names
+from the merged project + global scope.
+
+| Shell | Install |
+|---|---|
+| bash | `source <(ruse completion bash)` in `~/.bashrc` |
+| zsh  | `ruse completion zsh > "${fpath[1]}/_ruse"` then restart the shell |
+| fish | `ruse completion fish > ~/.config/fish/completions/ruse.fish` |
 
 ## The toolkit
 

@@ -29,9 +29,12 @@ behavior live in `src/runtime.mjs` — read it if any detail is uncertain.
    the folder does not exist.
 3. Write the recipe with the fewest LLM calls that do the job. Reach for
    `schema` whenever the LLM output feeds later deterministic steps.
-4. Validate: run `node src/cli.mjs run <recipe> --dry-run` (or `ruse run …
+4. Validate: run `node src/cli.mjs run <name> --dry-run` (or `ruse run <name>
    --dry-run` if installed) to exercise every deterministic step and confirm
-   where tokens would be spent, before any live run.
+   where tokens would be spent, before any live run. `<name>` is the recipe's
+   short name — the file at `.ruse/<name>.recipe.mjs` (project scope) or
+   `<user-recipes>/<name>.recipe.mjs` (global scope, e.g.
+   `~/.config/ruse/recipes/`); project wins on ties. A full path still works.
 5. Match the surrounding style; comment which steps are free vs LLM.
 
 ## Guardrails

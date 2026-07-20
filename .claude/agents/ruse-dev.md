@@ -9,7 +9,7 @@ faithful to its purpose: help users spend LLM tokens only where judgment is
 needed.
 
 ## The map
-- `src/cli.mjs` — entry point; `ruse init` and `ruse run` dispatch, arg parsing, the run ledger summary.
+- `src/cli.mjs` — entry point; dispatches `ruse init | run | recipes | completion | __complete`, arg parsing, the run ledger summary. Also hosts `resolveRecipe` (project scope shadows global), `listAllRecipes`, `userRecipesDir` (respects `RUSE_HOME` / `XDG_CONFIG_HOME`), and the handwritten bash/zsh/fish completion scripts.
 - `src/runtime.mjs` — the kit handed to recipes (`ask/run/sh/prompt/agent/use/handoff`), the `Ledger`, structured-output parsing (`tryParse`), and `execCapture`.
 - `src/claude.mjs` — the wrapper over `claude -p --output-format json`; maps kit options to real CLI flags.
 - `src/init.mjs` — the `.ruse/` scaffold templates.

@@ -7,7 +7,7 @@ import { resolve, join, relative } from 'node:path';
 
 const RECIPE = `// .ruse/example.recipe.mjs
 // A recipe interleaves free deterministic steps with explicit LLM steps.
-// Run:  ruse run .ruse/example.recipe.mjs [--dry-run]
+// Run:  ruse run example [--dry-run]
 
 export default async function ({ ask, run, sh, prompt, agent, state }) {
   // 1. Deterministic: gather context with plain commands (no tokens).
@@ -83,7 +83,7 @@ export async function init(targetDir = process.cwd()) {
   for (const f of created) process.stdout.write(`  create  ${shown}/${f}\n`);
   for (const f of skipped) process.stdout.write(`  skip    ${shown}/${f} (exists)\n`);
   process.stdout.write(
-    `\n${created.length} file(s) created. Try:\n  ruse run ${shown}/example.recipe.mjs --dry-run\n`,
+    `\n${created.length} file(s) created. Try:\n  ruse run example --dry-run\n`,
   );
 }
 

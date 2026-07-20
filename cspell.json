@@ -1,0 +1,18 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "compadd",
+    "compdef",
+    "compgen",
+    "COMPREPLY",
+    "cword",
+    "CWORD",
+    "fpath",
+    "interp",
+    "mkdirs",
+    "mjs",
+    "pnpm",
+    "ruse"
+  ]
+}

@@ -12,7 +12,11 @@ Default-export `async function (kit)`. Destructure what you need:
 `{ ask, run, sh, prompt, agent, use, handoff, state, args }`. Full contract and
 behavior live in `src/runtime.mjs` — read it if any detail is uncertain.
 
-- Deterministic (free): `ask`, `run`, `sh`, `use`.
+- Deterministic (free): `ask`, `run`, `sh`, `use`. `run`/`sh` accept
+  `{ stream: true }` to tee output to the terminal live while still capturing
+  it (use it for long-running commands like `pnpm test` where silence is
+  unhelpful). On non-zero exit both throw an Error with `.output` and
+  `.exitCode` attached — grab those in a `catch` instead of re-running.
 - LLM (the only token spend): `prompt`, `agent`. Options: `model` (prefer the
   cheapest capable — usually `haiku`), `input` (string or object, appended to
   the prompt), `schema` (JSON Schema → returns parsed `res.data`), `skill`

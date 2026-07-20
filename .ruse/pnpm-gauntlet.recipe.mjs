@@ -75,8 +75,8 @@ export default async function ({ sh, agent, state, log }) {
   });
 
   // Step 3 — translations sorter. This IS the fixer; just run it. No agent.
-  // Free step (no LLM). We still tolerate a non-zero exit by re-running with
-  // `|| true` if the script errors, but we surface the output either way.
+  // Free step (no LLM). On non-zero exit we surface the captured output via
+  // `err.output` (attached by `sh` when streaming) and bail.
   log(`\n[3/5 translations] running: pnpm translations:sort:fix`);
   const sortResult = await runCheck('pnpm translations:sort:fix');
   if (!sortResult.ok) {

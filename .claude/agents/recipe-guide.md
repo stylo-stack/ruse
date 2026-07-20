@@ -15,8 +15,8 @@ A recipe is a JS module that default-exports `async function (kit)`. The kit
 gives it these helpers (see `src/runtime.mjs` for the source of truth):
 
 - `ask(question, {choices, default})` — free; prompt the user on stdin.
-- `run(path, {args, input, env})` — free; run a `.js/.mjs/.sh/.ps1/.py` script, returns stdout.
-- `sh(cmd, {input, env})` — free; run an inline shell command, returns stdout.
+- `run(path, {args, input, env, stream})` — free; run a `.js/.mjs/.sh/.ps1/.py` script, returns stdout. `stream: true` tees stdout to the terminal live while still capturing it.
+- `sh(cmd, {input, env, stream})` — free; run an inline shell command, returns stdout. `stream: true` behaves the same way. On non-zero exit both throw an Error with `.output` (captured stdout) and `.exitCode` set — the caller can inspect the failure without re-running.
 - `prompt(textOrFile, {model, agent, skill, sessionId, input, schema, allowedTools, permissionMode})` — the only token spend. `.md/.txt` paths load as the prompt body. With `schema` (JSON Schema) it returns parsed `res.data`.
 - `agent(name, text, opts)` — `prompt` shorthand that runs as a named agent.
 - `use(path)` — free; import helpers/data from another module for reuse.

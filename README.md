@@ -119,8 +119,8 @@ from the merged project + global scope.
 | Helper | Cost | What it does |
 |---|---|---|
 | `ask(q, {choices, default})` | free | Prompt the user on stdin. |
-| `run(path, {args, input, env})` | free | Run a `.js/.mjs/.sh/.ps1/.py` script; returns stdout. |
-| `sh(cmd, {input, env})` | free | Run an inline shell command; returns stdout. |
+| `run(path, {args, input, env, stream})` | free | Run a `.js/.mjs/.sh/.ps1/.py` script; returns stdout. `stream: true` tees output live while capturing. |
+| `sh(cmd, {input, env, stream})` | free | Run an inline shell command; returns stdout. `stream: true` behaves the same. On non-zero exit both throw with `.output` + `.exitCode` attached. |
 | `prompt(textOrFile, {model, agent, skill, sessionId, input, allowedTools, permissionMode})` | **LLM** | One Claude turn. `.md/.txt` paths load as the prompt body. |
 | `agent(name, text, opts)` | **LLM** | `prompt` shorthand that runs as a named agent. |
 | `use(path)` | free | Import helpers/data from another module for reuse. |

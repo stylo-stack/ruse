@@ -13,6 +13,7 @@
     "mkdirs",
     "mjs",
     "pnpm",
-    "ruse"
+    "ruse",
+    "stylo"
   ]
 }

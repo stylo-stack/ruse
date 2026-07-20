@@ -20,6 +20,42 @@ export default async function ({ ask, run, sh, prompt, agent, handoff, use, stat
 }
 ```
 
+## Install
+
+Install globally to get the `ruse` command on your `PATH`:
+
+```bash
+# npm
+npm install -g github:stylo-stack/ruse
+
+# pnpm
+pnpm add -g github:stylo-stack/ruse
+
+# yarn
+yarn global add github:stylo-stack/ruse
+```
+
+Then verify:
+
+```bash
+ruse --help
+which ruse
+```
+
+Requires **Node.js ≥ 18**. To upgrade, re-run the same install command. To
+uninstall: `npm uninstall -g rational-use` (or `pnpm remove -g rational-use`).
+
+<details>
+<summary>Install from a local checkout</summary>
+
+```bash
+git clone https://github.com/stylo-stack/ruse.git
+cd ruse
+npm link          # or: pnpm link --global
+```
+
+</details>
+
 ## Run
 
 ```bash
@@ -128,3 +164,13 @@ session) before throwing — both attempts are counted in the ledger.
 
 Deterministic first. An LLM call is a deliberate, visible line in the recipe —
 never the default way to move data from one step to the next.
+
+## Development
+
+Hacking on the CLI itself? See [DEVELOPMENT.md](./DEVELOPMENT.md) for the
+source-tree layout, local-dev workflow, and the three Claude Code subagents
+shipped in `.claude/agents/`:
+
+- [`recipe-author`](.claude/agents/recipe-author.md) — builds/edits recipes.
+- [`recipe-guide`](.claude/agents/recipe-guide.md) — explains the kit API (read-only).
+- [`ruse-dev`](.claude/agents/ruse-dev.md) — works on the CLI itself.

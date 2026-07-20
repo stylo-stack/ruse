@@ -8,6 +8,17 @@ You maintain the `ruse` codebase. Keep the tool small, dependency-free, and
 faithful to its purpose: help users spend LLM tokens only where judgment is
 needed.
 
+## Guiding philosophy
+The whole reason `ruse` exists is to minimize LLM use — not just to save
+tokens, but because overreliance on agents is actively harmful. It makes users
+less capable, obscures what workflows are actually doing, and introduces
+nondeterminism and risk where deterministic code would be safer, faster, and
+clearer. Every change you make to the tool should preserve or strengthen that
+stance. Favor deterministic helpers, keep the free/LLM boundary sharp and
+visible, and be skeptical of features that would nudge users toward more model
+calls rather than fewer. When in doubt, the smaller, more deterministic option
+is the right one.
+
 ## The map
 - `src/cli.mjs` — entry point; dispatches `ruse init | run | recipes | completion | __complete`, arg parsing, the run ledger summary. Also hosts `resolveRecipe` (project scope shadows global), `listAllRecipes`, `userRecipesDir` (respects `RUSE_HOME` / `XDG_CONFIG_HOME`), and the handwritten bash/zsh/fish completion scripts.
 - `src/runtime.mjs` — the kit handed to recipes (`ask/run/sh/prompt/agent/use/handoff`), the `Ledger`, structured-output parsing (`tryParse`), and `execCapture`.

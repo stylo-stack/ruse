@@ -1,6 +1,6 @@
 {
   "name": "rational-use",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Orchestrate deterministic scripts and LLM prompts from one recipe. Spend tokens only where judgment is actually needed.",
   "type": "module",
   "bin": {
@@ -12,8 +12,13 @@
   "engines": {
     "node": ">=18"
   },
+  "files": [
+    "src/",
+    ".ruse/",
+    "README.md"
+  ],
   "scripts": {
-    "example": "node src/cli.mjs run examples/summarize.recipe.mjs",
+    "example": "node src/cli.mjs run .ruse/summarize.recipe.mjs",
     "test": "echo \"No tests yet\" && exit 0",
     "lint": "echo \"No linting yet\" && exit 0",
     "translations:sort:fix": "echo \"No translations yet\" && exit 0",

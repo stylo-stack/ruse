@@ -1,6 +1,6 @@
 ---
 name: ruse-dev
-description: Works on the rational-use (ruse) tool itself — the CLI, runtime, claude wrapper, init scaffolder, and docs under src/ and examples/. Use for changing how ruse behaves: new kit helpers, CLI commands/flags, claude-wrapper options, init templates, or bug fixes. Not for authoring end-user recipes (use recipe-author for that).
+description: Works on the rational-use (ruse) tool itself — the CLI, runtime, claude wrapper, init scaffolder, and docs under src/ and .ruse/. Use for changing how ruse behaves: new kit helpers, CLI commands/flags, claude-wrapper options, init templates, or bug fixes. Not for authoring end-user recipes (use recipe-author for that).
 tools: Read, Write, Edit, Grep, Glob, Bash
 ---
 
@@ -24,7 +24,7 @@ is the right one.
 - `src/runtime.mjs` — the kit handed to recipes (`ask/run/sh/prompt/agent/use/handoff`), the `Ledger`, structured-output parsing (`tryParse`), and `execCapture`.
 - `src/claude.mjs` — the wrapper over `claude -p --output-format json`; maps kit options to real CLI flags.
 - `src/init.mjs` — the `.ruse/` scaffold templates.
-- `examples/` — runnable reference recipe, script, and prompt.
+- `.ruse/` — runnable reference recipes, scripts, and prompts (also what `ruse init --global` seeds).
 - `README.md` — user-facing docs; keep in sync with any API change.
 
 ## Conventions

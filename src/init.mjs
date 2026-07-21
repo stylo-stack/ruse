@@ -1,9 +1,11 @@
 // `ruse init` — drop a ready-to-edit .ruse/ folder into a project.
+// `ruse init --global` — seed bundled example recipes into <user-recipes>.
 // Never overwrites existing files; reports what it created vs skipped.
 
-import { mkdir, writeFile, access } from 'node:fs/promises';
+import { mkdir, writeFile, access, readdir, copyFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { resolve, join, relative } from 'node:path';
+import { resolve, join, relative, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const RECIPE = `// .ruse/example.recipe.mjs
 // A recipe interleaves free deterministic steps with explicit LLM steps.
@@ -93,5 +95,70 @@ async function exists(p) {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * `ruse init --global` — copy the bundled `.ruse/` tree into `destDir`
+ * (which the caller resolves to `<user-recipes>`). Preserves layout so
+ * recipes can keep resolving sibling `prompts/` and `scripts/` paths relative
+ * to their own file. Never overwrites existing files — safe to re-run.
+ */
+export async function initGlobal(destDir) {
+  const here = dirname(fileURLToPath(import.meta.url));
+  // The bundled `.ruse/` tree lives as a sibling of `src/`, both in-repo and
+  // in the npm tarball (see the `files` field in package.json). We dogfood
+  // ruse by keeping the reference recipes in the same canonical location the
+  // tool itself resolves at project scope.
+  const bundledDir = resolve(here, '..', '.ruse');
+
+  if (!(await exists(bundledDir))) {
+    process.stderr.write(
+      `Could not find bundled recipes at ${bundledDir}.\n` +
+        `This usually means the install is corrupt; try reinstalling ruse.\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  await mkdir(destDir, { recursive: true });
+
+  const wrote = [];
+  const skipped = [];
+  await copyTree(bundledDir, destDir, wrote, skipped);
+
+  for (const f of wrote) process.stdout.write(`  wrote: ${f}\n`);
+  for (const f of skipped) process.stdout.write(`  skip:  ${f} (exists)\n`);
+
+  // Count recipes (top-level *.recipe.mjs / *.mjs) so the summary is useful.
+  const recipeCount = wrote.filter((p) => {
+    const rel = relative(destDir, p);
+    return !rel.includes('/') && (rel.endsWith('.recipe.mjs') || rel.endsWith('.mjs'));
+  }).length;
+  process.stdout.write(
+    `\nseeded ${recipeCount} recipe(s) to ${destDir} (${skipped.length} skipped)\n`,
+  );
+}
+
+// Recursively copy `src` into `dst`, appending absolute destination paths to
+// `wrote` for new files and `skipped` for pre-existing ones. Directories are
+// created as needed; nothing is ever overwritten.
+async function copyTree(src, dst, wrote, skipped) {
+  const entries = await readdir(src, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = join(src, entry.name);
+    const dstPath = join(dst, entry.name);
+    if (entry.isDirectory()) {
+      await mkdir(dstPath, { recursive: true });
+      await copyTree(srcPath, dstPath, wrote, skipped);
+    } else if (entry.isFile()) {
+      if (await exists(dstPath)) {
+        skipped.push(dstPath);
+        continue;
+      }
+      await copyFile(srcPath, dstPath);
+      wrote.push(dstPath);
+    }
+    // Symlinks/other types intentionally ignored — the bundled tree is plain files.
   }
 }

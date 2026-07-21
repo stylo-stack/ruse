@@ -6,12 +6,13 @@ import { pathToFileURL } from 'node:url';
 import { statSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { makeKit, Ledger } from './runtime.mjs';
-import { init } from './init.mjs';
+import { init, initGlobal } from './init.mjs';
 
 const HELP = `ruse — rational use of LLMs
 
 Usage:
   ruse init [dir]                        Scaffold a .ruse/ folder in a project.
+  ruse init --global                     Seed global recipes into <user-recipes>.
   ruse run <recipe> [--dry-run] [-- ...args]
   ruse recipes                           List every recipe visible from cwd.
   ruse completion <bash|zsh|fish>        Print a shell completion script.
@@ -52,6 +53,10 @@ async function main(argv) {
     return;
   }
   if (cmd === 'init') {
+    if (rest.includes('--global')) {
+      await initGlobal(userRecipesDir());
+      return;
+    }
     const dir = rest.find((a) => !a.startsWith('-'));
     await init(dir ? resolve(process.cwd(), dir) : process.cwd());
     return;

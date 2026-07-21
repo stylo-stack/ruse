@@ -3,10 +3,75 @@
 
 import { resolve, dirname, join, basename, isAbsolute, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { statSync, readdirSync } from 'node:fs';
+import { statSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { makeKit, Ledger } from './runtime.mjs';
 import { init } from './init.mjs';
+
+// Block-letter wordmark shown on bare `ruse`, `--help`, and `--version`. Kept
+// ASCII inside the block so it renders in every terminal; the caption's em-dash
+// mirrors non-ASCII already present in HELP. See renderBanner() for coloring.
+const BANNER_BLOCK = [
+  '  _ __ _   _ ___  ___',
+  " | '__| | | / __|/ _ \\",
+  ' | |  | |_| \\__ \\  __/',
+  ' |_|   \\__,_|___/\\___|',
+];
+const BANNER_CAPTION = ' rational Use — humans, using AI';
+
+// ANSI helpers. We only emit codes when stdout is a real TTY and NO_COLOR is
+// unset (https://no-color.org). Callers pass `color: false` to force plain.
+const ANSI = { bold: '\x1b[1m', dim: '\x1b[2m', reset: '\x1b[0m' };
+function colorEnabled() {
+  if (process.env.NO_COLOR && process.env.NO_COLOR.length > 0) return false;
+  return Boolean(process.stdout.isTTY);
+}
+
+// Render the banner. When color is on, block letters are bold and the caption
+// is dim — except `r` and `U` in "rational Use", which stay un-dimmed so they
+// echo the wordmark. When color is off we just return the plain lines.
+function renderBanner({ color = colorEnabled() } = {}) {
+  const lines = [];
+  if (color) {
+    for (const l of BANNER_BLOCK) lines.push(`${ANSI.bold}${l}${ANSI.reset}`);
+    lines.push('');
+    // Highlight the leading `r` of "rational" and the `U` of "Use" by leaving
+    // them at normal intensity while the rest of the caption is dimmed.
+    const cap = BANNER_CAPTION;
+    const rIdx = cap.indexOf('r'); // first 'r' — starts "rational"
+    const uIdx = cap.indexOf('U'); // 'U' — starts "Use"
+    let out = '';
+    for (let i = 0; i < cap.length; i++) {
+      const ch = cap[i];
+      if (i === rIdx || i === uIdx) {
+        out += `${ANSI.reset}${ch}${ANSI.dim}`;
+      } else {
+        out += ch;
+      }
+    }
+    lines.push(`${ANSI.dim}${out}${ANSI.reset}`);
+  } else {
+    for (const l of BANNER_BLOCK) lines.push(l);
+    lines.push('');
+    lines.push(BANNER_CAPTION);
+  }
+  return lines.join('\n') + '\n';
+}
+
+// Print the banner only when stdout is a TTY. Piped/redirected/CI output stays
+// clean so `ruse --help | cat` and log capture don't see decoration.
+function maybePrintBanner() {
+  if (!process.stdout.isTTY) return;
+  process.stdout.write(renderBanner() + '\n');
+}
+
+// Read version lazily from package.json. Kept as a function so `ruse run` and
+// friends never touch the file — only the version path pays for it.
+function readVersion() {
+  const url = new URL('../package.json', import.meta.url);
+  const pkg = JSON.parse(readFileSync(url, 'utf8'));
+  return pkg.version;
+}
 
 const HELP = `ruse — rational use of LLMs
 
@@ -47,7 +112,13 @@ const SUBCOMMANDS = ['run', 'init', 'recipes', 'completion', 'help'];
 
 async function main(argv) {
   const [cmd, ...rest] = argv;
+  if (cmd === '--version' || cmd === '-v') {
+    maybePrintBanner();
+    process.stdout.write(`ruse v${readVersion()}\n`);
+    return;
+  }
   if (!cmd || cmd === '-h' || cmd === '--help' || cmd === 'help') {
+    maybePrintBanner();
     process.stdout.write(HELP);
     return;
   }

@@ -27,7 +27,7 @@ set, else $XDG_CONFIG_HOME/ruse/recipes, else ~/.config/ruse/recipes.
 
 A recipe is a JS module whose default export is an async function:
 
-  export default async function ({ ask, run, sh, prompt, agent, handoff, state }) {
+  export default async function ({ ask, run, sh, prompt, agent, context, handoff, state }) {
     const file = await ask('Which file to summarize?');
     const text = await run('scripts/read.sh', { args: [file] });   // deterministic
     const { text: summary } = await prompt('prompts/summarize.md', {// LLM (opt-in)

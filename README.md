@@ -121,8 +121,9 @@ from the merged project + global scope.
 | `ask(q, {choices, default})` | free | Prompt the user on stdin. |
 | `run(path, {args, input, env, stream})` | free | Run a `.js/.mjs/.sh/.ps1/.py` script; returns stdout. `stream: true` tees output live while capturing. |
 | `sh(cmd, {input, env, stream})` | free | Run an inline shell command; returns stdout. `stream: true` behaves the same. On non-zero exit both throw with `.output` + `.exitCode` attached. |
-| `prompt(textOrFile, {model, agent, skill, sessionId, input, allowedTools, permissionMode})` | **LLM** | One Claude turn. `.md/.txt` paths load as the prompt body. |
+| `prompt(textOrFile, {model, agent, skill, sessionId, input, context, allowedTools, permissionMode})` | **LLM** | One Claude turn. `.md/.txt` paths load as the prompt body. |
 | `agent(name, text, opts)` | **LLM** | `prompt` shorthand that runs as a named agent. |
+| `context(name, textOrFile, opts)` | **LLM** | Like `prompt` but `schema` is required; result lands on `state.context[name]` for reuse. |
 | `use(path)` | free | Import helpers/data from another module for reuse. |
 | `handoff(recipe, extraState)` | — | Run another recipe, sharing `state`. |
 | `state` | — | Mutable object threaded across steps and handoffs. |
@@ -159,6 +160,29 @@ The runtime appends the schema to the prompt, strips any code fences from the
 reply, parses it, and does a light structural check (type + required fields).
 On a mismatch it makes **one** self-correcting retry (resuming the same
 session) before throwing — both attempts are counted in the ledger.
+
+## Shared context
+
+Build a structured context once, then reuse it across several prompts without
+re-running the work. `context(name, textOrFile, opts)` costs one LLM call
+(`schema` is required so the result is inspectable), and stores
+`{ data, sessionId, model }` at `state.context[name]`. Later prompts pull
+those blocks in with `{ context: [...names] }`:
+
+```js
+await context('repoMap', 'prompts/repo_map.md', { model: 'haiku', input: files, schema });
+await context('style',   'prompts/style_notes.md', { model: 'haiku', input: readme, schema });
+
+const { text: blurb }   = await prompt('prompts/blurb.md',   { model: 'haiku', context: ['repoMap', 'style'] });
+const { text: tagline } = await prompt('prompts/tagline.md', { model: 'haiku', context: ['repoMap', 'style'] });
+```
+
+Each named context is rendered as a stable `## Context: <name>` block
+prepended to the prompt, in the order you pass — that stable ordering is what
+makes the prefix cache-friendly. If every referenced context shares a
+`sessionId` (and the call has no explicit `sessionId`), the runtime
+auto-threads to it so Claude's KV cache can hit; conflicts skip auto-threading
+and log a note.
 
 ## Design principle
 

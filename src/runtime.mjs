@@ -111,6 +111,15 @@ export function makeKit(cfg) {
       text = await readFile(rel(promptOrFile), 'utf8');
     }
     if (opts.skill) text = `/${opts.skill} ${text}`;
+    // Shared context blocks: rendered as a byte-stable prefix so Claude's
+    // server-side KV cache can hit across sibling calls. Order follows the
+    // author's `context: [...]` array — don't sort, they picked the ordering.
+    let autoSessionId;
+    if (opts.context?.length) {
+      const { prefix, sessionId } = renderContext(opts.context, state, log);
+      text = `${prefix}${text}`;
+      autoSessionId = sessionId;
+    }
     if (opts.input != null) {
       const payload = typeof opts.input === 'string' ? opts.input : JSON.stringify(opts.input, null, 2);
       text = `${text}\n\n---\nInput:\n${payload}`;
@@ -120,9 +129,12 @@ export function makeKit(cfg) {
       text = `${text}\n\n---\nRespond with ONLY a JSON value conforming to this JSON Schema.\n` +
         `No prose, no markdown code fences.\n\nJSON Schema:\n${JSON.stringify(opts.schema, null, 2)}`;
     }
+    // Resolve session: explicit opts.sessionId wins; else auto-thread if the
+    // referenced contexts agree on one.
+    const sessionId = opts.sessionId ?? autoSessionId;
     if (dryRun) {
-      log(`[dry-run] would call LLM (model=${opts.model ?? 'default'}${opts.agent ? `, agent=${opts.agent}` : ''}${opts.schema ? ', schema' : ''})`);
-      return { text: '', data: opts.schema ? null : undefined, sessionId: opts.sessionId ?? '', costUsd: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }, raw: {} };
+      log(`[dry-run] would call LLM (model=${opts.model ?? 'default'}${opts.agent ? `, agent=${opts.agent}` : ''}${opts.schema ? ', schema' : ''}${opts.context?.length ? `, context=[${opts.context.join(',')}]` : ''}${sessionId ? ', threaded' : ''})`);
+      return { text: '', data: opts.schema ? null : undefined, sessionId: sessionId ?? '', costUsd: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }, raw: {} };
     }
     ledger.llmCalls++;
     // LLM steps run at the project root (process.cwd) by default so Claude sees
@@ -131,7 +143,7 @@ export function makeKit(cfg) {
     const stop = startSpinner(label);
     let res;
     try {
-      res = await claude(text, { cwd: process.cwd(), ...opts });
+      res = await claude(text, { cwd: process.cwd(), ...opts, sessionId });
     } finally {
       stop();
     }
@@ -171,6 +183,22 @@ export function makeKit(cfg) {
     return prompt(promptText, { ...opts, agent: name });
   }
 
+  // --- LLM: build a reusable, structured context entry ---------------------
+  // Same cost as `prompt` but the parsed data lands on `state.context[name]`
+  // so later prompts can pull it in via `{ context: ['name', ...] }`.
+  async function context(name, promptOrFile, opts = {}) {
+    if (!name || typeof name !== 'string') throw new Error('context(name, ...) requires a string name.');
+    if (!opts.schema) throw new Error(`context("${name}", ...) requires opts.schema — context must be structured and inspectable.`);
+    const res = await prompt(promptOrFile, opts);
+    if (!state.context) state.context = {};
+    state.context[name] = {
+      data: res.data,
+      sessionId: res.sessionId,
+      model: opts.model ?? 'default',
+    };
+    return res.data;
+  }
+
   // --- Reuse: import helpers/data from another recipe file -----------------
   async function use(modulePath) {
     return import(pathToFileURL(rel(modulePath)).href);
@@ -187,7 +215,36 @@ export function makeKit(cfg) {
     return fn(kit);
   }
 
-  return { ask, run, sh, prompt, agent, use, handoff, state, args, log };
+  return { ask, run, sh, prompt, agent, context, use, handoff, state, args, log };
+}
+
+/**
+ * Build the byte-stable prefix for `opts.context: [...names]`. Also returns
+ * a `sessionId` when every referenced context shares the same one — callers
+ * use that to auto-thread so Claude's server-side KV cache can hit. Conflicts
+ * return no sessionId and log a debug note; the prefix is still rendered.
+ */
+function renderContext(names, state, log) {
+  const store = state.context ?? {};
+  const missing = names.filter((n) => !(n in store));
+  if (missing.length) {
+    const available = Object.keys(store);
+    throw new Error(
+      `Unknown context name(s): ${missing.map((n) => `"${n}"`).join(', ')}. ` +
+        `Available: ${available.length ? available.map((n) => `"${n}"`).join(', ') : '(none)'}.`,
+    );
+  }
+  const blocks = names.map((n) => `## Context: ${n}\n${JSON.stringify(store[n].data, null, 2)}\n\n`);
+  const prefix = blocks.join('');
+  const sessionIds = names.map((n) => store[n].sessionId).filter(Boolean);
+  const unique = new Set(sessionIds);
+  let sessionId;
+  if (unique.size === 1 && sessionIds.length === names.length) {
+    sessionId = sessionIds[0];
+  } else if (unique.size > 1) {
+    log(`[context] skipping auto-thread: contexts [${names.join(', ')}] have conflicting sessionIds.`);
+  }
+  return { prefix, sessionId };
 }
 
 /**

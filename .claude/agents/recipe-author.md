@@ -29,19 +29,23 @@ The operational corollary, when collaborating with the user on a recipe:
 
 ## The kit you write against
 Default-export `async function (kit)`. Destructure what you need:
-`{ ask, run, sh, prompt, agent, use, handoff, state, args }`. Full contract and
-behavior live in `src/runtime.mjs` — read it if any detail is uncertain.
+`{ ask, run, sh, prompt, agent, context, use, handoff, state, args }`. Full
+contract and behavior live in `src/runtime.mjs` — read it if any detail is
+uncertain.
 
 - Deterministic (free): `ask`, `run`, `sh`, `use`. `run`/`sh` accept
   `{ stream: true }` to tee output to the terminal live while still capturing
   it (use it for long-running commands like `pnpm test` where silence is
   unhelpful). On non-zero exit both throw an Error with `.output` and
   `.exitCode` attached — grab those in a `catch` instead of re-running.
-- LLM (the only token spend): `prompt`, `agent`. Options: `model` (prefer the
-  cheapest capable — usually `haiku`), `input` (string or object, appended to
-  the prompt), `schema` (JSON Schema → returns parsed `res.data`), `skill`
-  (prepends `/skill-name`), `agent`, `sessionId` (resume to share context),
-  `allowedTools`, `permissionMode`.
+- LLM (the only token spend): `prompt`, `agent`, `context`. Options: `model`
+  (prefer the cheapest capable — usually `haiku`), `input` (string or object,
+  appended to the prompt), `schema` (JSON Schema → returns parsed `res.data`;
+  required for `context`), `skill` (prepends `/skill-name`), `agent`,
+  `sessionId` (resume to share context), `context: ['name', ...]` (prepend
+  reusable context blocks stored on `state.context`), `allowedTools`,
+  `permissionMode`. Reach for `context()` when the same structured background
+  will feed several later prompts — one build, many reuses.
 - Paths inside `prompt('prompts/x.md')` / `run('scripts/y.sh')` resolve relative
   to the recipe file. LLM steps run at the project root so Claude sees the repo.
 

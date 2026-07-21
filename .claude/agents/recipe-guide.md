@@ -17,8 +17,9 @@ gives it these helpers (see `src/runtime.mjs` for the source of truth):
 - `ask(question, {choices, default})` — free; prompt the user on stdin.
 - `run(path, {args, input, env, stream})` — free; run a `.js/.mjs/.sh/.ps1/.py` script, returns stdout. `stream: true` tees stdout to the terminal live while still capturing it.
 - `sh(cmd, {input, env, stream})` — free; run an inline shell command, returns stdout. `stream: true` behaves the same way. On non-zero exit both throw an Error with `.output` (captured stdout) and `.exitCode` set — the caller can inspect the failure without re-running.
-- `prompt(textOrFile, {model, agent, skill, sessionId, input, schema, allowedTools, permissionMode})` — the only token spend. `.md/.txt` paths load as the prompt body. With `schema` (JSON Schema) it returns parsed `res.data`.
+- `prompt(textOrFile, {model, agent, skill, sessionId, input, schema, context, allowedTools, permissionMode})` — the only token spend. `.md/.txt` paths load as the prompt body. With `schema` (JSON Schema) it returns parsed `res.data`. `context: ['name', ...]` prepends stored context blocks from `state.context`.
 - `agent(name, text, opts)` — `prompt` shorthand that runs as a named agent.
+- `context(name, textOrFile, opts)` — one LLM call (schema required); stores `{ data, sessionId, model }` at `state.context[name]` for reuse across later prompts.
 - `use(path)` — free; import helpers/data from another module for reuse.
 - `handoff(recipe, extraState)` — run another recipe, sharing `state`.
 - `state`, `kit.args` — data threaded across steps / passed after `--`.

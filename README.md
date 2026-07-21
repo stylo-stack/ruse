@@ -63,7 +63,7 @@ ruse init                                        # scaffold .ruse/ into a projec
 ruse run summarize                               # short name — resolves .ruse/summarize.recipe.mjs
 ruse run summarize --dry-run                     # skip LLM calls, show what would cost
 ruse run summarize -- --arg1 value               # pass args (kit.args)
-ruse run examples/summarize.recipe.mjs           # explicit path still works
+ruse run .ruse/summarize.recipe.mjs              # explicit path still works
 ruse recipes                                     # list every recipe visible from cwd
 ruse completion zsh                              # print a shell completion script
 ```

@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { statSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { makeKit, Ledger } from './runtime.mjs';
-import { init } from './init.mjs';
+import { init, initGlobal } from './init.mjs';
 
 // Block-letter wordmark shown on bare `ruse`, `--help`, and `--version`. Kept
 // ASCII inside the block so it renders in every terminal; the caption's em-dash
@@ -77,6 +77,7 @@ const HELP = `ruse — rational use of LLMs
 
 Usage:
   ruse init [dir]                        Scaffold a .ruse/ folder in a project.
+  ruse init --global                     Seed global recipes into <user-recipes>.
   ruse run <recipe> [--dry-run] [-- ...args]
   ruse recipes                           List every recipe visible from cwd.
   ruse completion <bash|zsh|fish>        Print a shell completion script.
@@ -123,6 +124,10 @@ async function main(argv) {
     return;
   }
   if (cmd === 'init') {
+    if (rest.includes('--global')) {
+      await initGlobal(userRecipesDir());
+      return;
+    }
     const dir = rest.find((a) => !a.startsWith('-'));
     await init(dir ? resolve(process.cwd(), dir) : process.cwd());
     return;

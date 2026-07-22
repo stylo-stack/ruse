@@ -16,6 +16,7 @@
     "pnpm",
     "ruse",
     "scaffolder",
-    "stylo"
+    "stylo",
+    "wordmark"
   ]
 }

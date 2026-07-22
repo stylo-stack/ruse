@@ -42,8 +42,25 @@ ruse --help
 which ruse
 ```
 
-Requires **Node.js ≥ 18**. To upgrade, re-run the same install command. To
-uninstall: `npm uninstall -g rational-use` (or `pnpm remove -g rational-use`).
+Requires **Node.js ≥ 18**. To upgrade, either re-run the same install command
+or use `ruse update` (see below). To uninstall: `npm uninstall -g rational-use`
+(or `pnpm remove -g rational-use`).
+
+### Updating
+
+```bash
+ruse update              # check GitHub Releases; if newer, prompt and install
+ruse update --check      # check only, no install
+ruse update --dev        # install the latest commit on main
+ruse update --npm        # override the package manager (default is pnpm)
+ruse update --yarn       # same, for yarn
+```
+
+`ruse update` compares your installed version against the latest GitHub
+Release. `--dev` switches the source to the tip of `main` on
+`stylo-stack/ruse` and remembers the installed SHA so a follow-up
+`ruse update --check --dev` can tell you "already up to date". The flags
+`--npm`, `--pnpm`, and `--yarn` are mutually exclusive; pnpm is the default.
 
 <details>
 <summary>Install from a local checkout</summary>

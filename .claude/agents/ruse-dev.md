@@ -20,10 +20,11 @@ calls rather than fewer. When in doubt, the smaller, more deterministic option
 is the right one.
 
 ## The map
-- `src/cli.mjs` — entry point; dispatches `ruse init | run | recipes | completion | __complete`, arg parsing, the run ledger summary. Also hosts `resolveRecipe` (project scope shadows global), `listAllRecipes`, `userRecipesDir` (respects `RUSE_HOME` / `XDG_CONFIG_HOME`), and the handwritten bash/zsh/fish completion scripts.
-- `src/runtime.mjs` — the kit handed to recipes (`ask/run/sh/prompt/agent/use/handoff`), the `Ledger`, structured-output parsing (`tryParse`), and `execCapture`.
+- `src/cli.mjs` — entry point; dispatches `ruse init | run | recipes | config | completion | __complete`, arg parsing, the run ledger summary. Also hosts `resolveRecipe` (project scope shadows global), `listAllRecipes`, `userRecipesDir` (respects `RUSE_HOME` / `XDG_CONFIG_HOME`), the `runConfig` dispatch, and the handwritten bash/zsh/fish completion scripts.
+- `src/runtime.mjs` — the kit handed to recipes (`ask/run/sh/prompt/agent/context/use/handoff/config`), the `Ledger`, structured-output parsing (`tryParse`), and `execCapture`.
 - `src/claude.mjs` — the wrapper over `claude -p --output-format json`; maps kit options to real CLI flags.
 - `src/init.mjs` — the `.ruse/` scaffold templates.
+- `src/config.mjs` — user-defined variable storage (`ruse config list|define`); three scopes with precedence project > user > global, JSON files on disk.
 - `.ruse/` — runnable reference recipes, scripts, and prompts (also what `ruse init --global` seeds).
 - `README.md` — user-facing docs; keep in sync with any API change.
 

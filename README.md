@@ -119,6 +119,69 @@ ruse run my-recipe        # now works from anywhere
 `ruse recipes` lists every visible recipe grouped by scope — useful to see
 which name would win when both scopes define one.
 
+## Variables (`ruse config`)
+
+`ruse config` manages small, user-defined variables in a JSON file per scope.
+This is storage only — variable substitution into recipes is a separate,
+deliberate follow-up.
+
+```bash
+ruse config list                                    # merged view (project > user > global)
+ruse config list --scope user                       # just one scope
+ruse config define api_url https://example.com      # writes to project by default
+ruse config define retries 3                        # values that parse as JSON keep their type
+ruse config define --scope user default_model haiku
+ruse config define editor vim --scope global
+```
+
+Three scopes with a clear precedence for reads:
+
+| Precedence | Scope | Path | Meaning |
+|---|---|---|---|
+| 1 | `project` | `<nearest .ruse/>/config.json` | Checked in with the repo. |
+| 2 | `user` | `<user-config>/config.json` | Per-user, per-machine. |
+| 3 | `global` | `<user-config>/global.config.json` | Per-user, portable (dotfiles-syncable). |
+
+`<user-config>` follows the same rules as `<user-recipes>`: `$RUSE_HOME`, else
+`$XDG_CONFIG_HOME/ruse`, else `~/.config/ruse`. `ruse config list` (no
+`--scope`) shows the merged view and flags shadowed names so it's obvious
+which scope wins. The default scope for `define` is `project` — the most
+conservative choice, matching how recipes resolve.
+
+Variable names must match `/^[A-Za-z_][A-Za-z0-9_]*$/`. Values are parsed as
+JSON when possible so numbers, booleans, arrays, and objects round-trip as
+their real types; anything that isn't valid JSON is stored as a string.
+
+### Reading variables from a recipe
+
+The kit exposes `config` — a namespaced, deterministic helper that returns the
+merged view (same precedence: project > user > global). Values are resolved
+once per run and cached for the recipe's lifetime.
+
+```js
+export default async function ({ config, sh, log }) {
+  // Optional value with a fallback.
+  const model = config.get('default_model') ?? 'haiku';
+
+  // Required value — throws with a helpful message if unset.
+  const apiUrl = config.require('api_url');
+
+  // Whole merged snapshot when you need it.
+  log(JSON.stringify(config.all()));
+
+  await sh(`curl -sSf "${apiUrl}/ping"`);
+}
+```
+
+- `config.get(name)` returns the value, or `undefined` when unset.
+- `config.require(name)` returns the value, or throws
+  `Missing required variable "<name>". Define it with: ruse config define <name> <value>`.
+- `config.all()` returns a fresh copy of the merged `{ name: value }` map.
+
+No environment-variable fallback — only values written via `ruse config define`
+are visible. Read judgment is on the recipe: use `.get()` when a default makes
+sense, `.require()` when the recipe cannot run without it.
+
 ## Shell completion
 
 `ruse completion <bash|zsh|fish>` prints a completion script to stdout that
@@ -143,6 +206,7 @@ from the merged project + global scope.
 | `context(name, textOrFile, opts)` | **LLM** | Like `prompt` but `schema` is required; result lands on `state.context[name]` for reuse. |
 | `use(path)` | free | Import helpers/data from another module for reuse. |
 | `handoff(recipe, extraState)` | — | Run another recipe, sharing `state`. |
+| `config.get(name)` / `config.require(name)` / `config.all()` | free | Read merged `ruse config` variables (project > user > global). |
 | `state` | — | Mutable object threaded across steps and handoffs. |
 | `kit.args` | — | Args passed after `--`. |
 

@@ -22,6 +22,7 @@ gives it these helpers (see `src/runtime.mjs` for the source of truth):
 - `context(name, textOrFile, opts)` — one LLM call (schema required); stores `{ data, sessionId, model }` at `state.context[name]` for reuse across later prompts.
 - `use(path)` — free; import helpers/data from another module for reuse.
 - `handoff(recipe, extraState)` — run another recipe, sharing `state`.
+- `config.get(name)` / `config.require(name)` / `config.all()` — free; read merged `ruse config` variables (project > user > global). `.get` returns undefined when unset; `.require` throws.
 - `state`, `kit.args` — data threaded across steps / passed after `--`.
 
 ## The core principle you always reinforce

@@ -110,9 +110,49 @@ Options:
   -h, --help  Show this help.
 `;
 
-// Top-level subcommands that `ruse <TAB>` should offer. Kept next to HELP so
-// they stay in sync when new commands are added.
-const SUBCOMMANDS = ['run', 'init', 'recipes', 'update', 'completion', 'help'];
+// Top-level subcommands that `ruse <TAB>` should offer, paired with a short
+// description shells can render alongside each candidate. Kept next to HELP
+// so they stay in sync when new commands are added. Order is display order.
+const SUBCOMMANDS = [
+  ['run', 'Run a recipe (deterministic + LLM steps).'],
+  ['init', 'Scaffold a .ruse/ folder (or --global to seed user recipes).'],
+  ['recipes', 'List every recipe visible from cwd.'],
+  ['update', 'Check GitHub and (re)install ruse.'],
+  ['completion', 'Print a shell completion script.'],
+  ['help', 'Show help.'],
+];
+
+// Flags each subcommand accepts, with descriptions for `_describe`-style
+// completion UIs. Kept in one place so bash/zsh/fish all see the same set.
+const FLAGS = {
+  run: [['--dry-run', 'Skip LLM calls; print steps that would spend tokens.']],
+  init: [['--global', 'Seed bundled recipes into the user-level recipes dir.']],
+  update: [
+    ['--check', "Report if an update is available; don't install."],
+    ['--dev', 'Track the main branch instead of the latest release.'],
+    ['--npm', 'Install with npm.'],
+    ['--pnpm', 'Install with pnpm (default).'],
+    ['--yarn', 'Install with yarn.'],
+  ],
+  recipes: [],
+  completion: [],
+  help: [],
+};
+
+// Shells accepted by `ruse completion <shell>`, with descriptions.
+const COMPLETION_SHELLS = [
+  ['bash', 'Print bash completion script.'],
+  ['zsh', 'Print zsh completion script.'],
+  ['fish', 'Print fish completion script.'],
+];
+
+// Top-level flags valid before any subcommand.
+const TOP_LEVEL_FLAGS = [
+  ['--help', 'Show help.'],
+  ['-h', 'Show help.'],
+  ['--version', 'Print version.'],
+  ['-v', 'Print version.'],
+];
 
 async function main(argv) {
   const [cmd, ...rest] = argv;
@@ -149,18 +189,34 @@ async function main(argv) {
     return;
   }
   if (cmd === '__complete') {
-    // Hidden hook the shell completion scripts call back into. Prints one
-    // candidate per line so shells can read it cheaply. Kept intentionally
-    // minimal — extend later if new subcommands sprout their own completions.
-    const [target, partial = ''] = rest;
-    if (target === 'run') {
-      for (const r of listAllRecipes(process.cwd())) {
-        if (r.name.startsWith(partial)) process.stdout.write(r.name + '\n');
+    // Hidden hook the shell completion scripts call back into. Emits one
+    // candidate per line as "<value>\t<description>"; shells that don't want
+    // the description simply split on \t. Keeping the candidate list in Node
+    // means bash/zsh/fish stay tiny and never duplicate the flag surface.
+    const [target = '', partial = ''] = rest;
+    const emit = (pairs) => {
+      for (const [value, desc = ''] of pairs) {
+        if (value.startsWith(partial)) {
+          process.stdout.write(desc ? `${value}\t${desc}\n` : `${value}\n`);
+        }
       }
-    } else if (!target) {
-      for (const s of SUBCOMMANDS) {
-        if (s.startsWith(partial)) process.stdout.write(s + '\n');
-      }
+    };
+    if (target === '' || target === 'subcommands') {
+      emit(SUBCOMMANDS);
+    } else if (target === 'top-flags') {
+      emit(TOP_LEVEL_FLAGS);
+    } else if (target === 'run') {
+      // Recipe names have no useful "description" beyond their scope; include
+      // it so the completion UI can hint project vs global at a glance.
+      const pairs = listAllRecipes(process.cwd()).map((r) => [r.name, r.scope]);
+      emit(pairs);
+    } else if (target === 'completion') {
+      emit(COMPLETION_SHELLS);
+    } else if (target === 'flags' || target.startsWith('flags:')) {
+      // `flags:<sub>` — flags valid for that subcommand. Bare `flags` is a
+      // safe fallback that returns nothing rather than erroring.
+      const sub = target.startsWith('flags:') ? target.slice(6) : '';
+      emit(FLAGS[sub] || []);
     }
     return;
   }
@@ -419,6 +475,10 @@ function printCompletion(shell) {
 }
 
 const COMPLETIONS = {
+  // Bash: single dispatch function. All candidate lists come from
+  // `ruse __complete`; we strip the tab-separated description column here
+  // because bash's `compgen -W` only wants raw words. Recipe names, flags,
+  // and subcommands share one code path.
   bash: `# ruse bash completion. Install:  source <(ruse completion bash)
 _ruse() {
   local cur prev words cword
@@ -428,45 +488,173 @@ _ruse() {
     words=("\${COMP_WORDS[@]}")
     cword=$COMP_CWORD
   }
-  local sub="\${words[1]}"
-  if [ "$cword" -eq 1 ]; then
-    COMPREPLY=( $(compgen -W "$(ruse __complete '' "$cur" 2>/dev/null)" -- "$cur") )
-    return
+
+  # Locate the subcommand (first non-flag word after "ruse").
+  local i sub=""
+  for (( i=1; i<cword; i++ )); do
+    case "\${words[i]}" in
+      -*) ;;
+      *) sub="\${words[i]}"; break ;;
+    esac
+  done
+
+  # Ask ruse for candidates in the current context, then strip the description
+  # column (everything after the first tab) — bash doesn't display them.
+  local target=""
+  if [ -z "$sub" ]; then
+    # No subcommand yet. Offer subcommands (or top-level flags for a lone "-").
+    case "$cur" in
+      -*) target="top-flags" ;;
+      *)  target="subcommands" ;;
+    esac
+  else
+    case "$cur" in
+      -*) target="flags:$sub" ;;
+      *)
+        case "$sub" in
+          run)        target="run" ;;
+          completion) target="completion" ;;
+          *)          target="" ;;
+        esac
+        ;;
+    esac
   fi
-  if [ "$sub" = "run" ] && [ "$cword" -eq 2 ]; then
-    COMPREPLY=( $(compgen -W "$(ruse __complete run "$cur" 2>/dev/null)" -- "$cur") )
-    return
+
+  local raw
+  if [ -n "$target" ]; then
+    raw="$(ruse __complete "$target" "$cur" 2>/dev/null | cut -f1)"
+    COMPREPLY=( $(compgen -W "$raw" -- "$cur") )
   fi
 }
 complete -F _ruse ruse
 `,
+
+  // Zsh: native _arguments-driven completion. Each subcommand gets its own
+  // dispatch clause so `--dry-run<TAB>` after `ruse run` completes only the
+  // flags that command actually accepts, and recipe names are annotated with
+  // their scope. Candidate lines are "value\tdescription", exactly what
+  // _describe -V wants after we split on \t.
   zsh: `#compdef ruse
-# ruse zsh completion. Install:  ruse completion zsh > "\${fpath[1]}/_ruse"
-_ruse() {
-  local -a candidates
-  if (( CURRENT == 2 )); then
-    candidates=( \${(f)"$(ruse __complete '' "\${words[2]}" 2>/dev/null)"} )
-    compadd -a candidates
-    return
-  fi
-  if [[ "\${words[2]}" == "run" ]] && (( CURRENT == 3 )); then
-    candidates=( \${(f)"$(ruse __complete run "\${words[3]}" 2>/dev/null)"} )
-    compadd -a candidates
-    return
-  fi
+# ruse zsh completion. Install:
+#   ruse completion zsh > "\${fpath[1]}/_ruse"
+# then start a new shell (or run \`compinit\`).
+
+# Turn "value\\tdescription" lines from \`ruse __complete\` into an array
+# _describe can render. Each element is "value:description" (colons in the
+# description are escaped so _describe doesn't get confused).
+_ruse_candidates() {
+  local target="$1" partial="$2" line value desc
+  local -a items
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    value="\${line%%$'\\t'*}"
+    if [[ "$line" == *$'\\t'* ]]; then
+      desc="\${line#*$'\\t'}"
+      desc="\${desc//:/\\\\:}"
+      items+=("$value:$desc")
+    else
+      items+=("$value")
+    fi
+  done < <(ruse __complete "$target" "$partial" 2>/dev/null)
+  _describe -V -t "$target" "$target" items
 }
+
+_ruse() {
+  local curcontext="$curcontext" state line
+  typeset -A opt_args
+
+  _arguments -C \\
+    '(- *)'{-h,--help}'[Show help]' \\
+    '(- *)'{-v,--version}'[Print version]' \\
+    '1: :->cmd' \\
+    '*::arg:->args'
+
+  case $state in
+    cmd)
+      _ruse_candidates subcommands "\${words[CURRENT]}"
+      ;;
+    args)
+      local sub="\${words[1]}"
+      case "$sub" in
+        run)
+          _arguments \\
+            '--dry-run[Skip LLM calls; print steps that would spend tokens]' \\
+            '(-)--[End of options; remaining args are passed to the recipe]' \\
+            '*:recipe:->recipe'
+          if [[ "$state" == "recipe" ]]; then
+            _ruse_candidates run "\${words[CURRENT]}"
+          fi
+          ;;
+        init)
+          _arguments \\
+            '--global[Seed bundled recipes into the user-level recipes dir]' \\
+            '*:dir:_files -/'
+          ;;
+        update)
+          _arguments \\
+            '--check[Report if an update is available; do not install]' \\
+            '--dev[Track the main branch instead of the latest release]' \\
+            '(--npm --pnpm --yarn)--npm[Install with npm]' \\
+            '(--npm --pnpm --yarn)--pnpm[Install with pnpm (default)]' \\
+            '(--npm --pnpm --yarn)--yarn[Install with yarn]'
+          ;;
+        completion)
+          _ruse_candidates completion "\${words[CURRENT]}"
+          ;;
+        recipes|help)
+          ;;
+      esac
+      ;;
+  esac
+}
+
 _ruse "$@"
 `,
-  fish: `# ruse fish completion. Install:  ruse completion fish > ~/.config/fish/completions/ruse.fish
-function __ruse_subs
-  ruse __complete '' (commandline -ct) 2>/dev/null
+
+  // Fish: one `complete` line per (subcommand, flag/positional). Fish shows
+  // the description column natively, so we split the `__complete` output on
+  // tabs and feed each side into `-a` / `-d`.
+  fish: `# ruse fish completion. Install:
+#   ruse completion fish > ~/.config/fish/completions/ruse.fish
+
+# Emit fish-style "value\\tdescription" candidate lists by relaying whatever
+# \`ruse __complete\` produces (its output format already matches).
+function __ruse_complete
+  ruse __complete $argv[1] (commandline -ct) 2>/dev/null
 end
-function __ruse_recipes
-  ruse __complete run (commandline -ct) 2>/dev/null
-end
+
+# Disable file completion by default — subcommands and flags supply their own.
 complete -c ruse -f
-complete -c ruse -n '__fish_use_subcommand' -a '(__ruse_subs)'
-complete -c ruse -n '__fish_seen_subcommand_from run' -a '(__ruse_recipes)'
+
+# Top-level: subcommands only before one is given.
+complete -c ruse -n '__fish_use_subcommand' -a '(__ruse_complete subcommands)'
+
+# Top-level flags (valid before any subcommand).
+complete -c ruse -n '__fish_use_subcommand' -s h -l help    -d 'Show help'
+complete -c ruse -n '__fish_use_subcommand' -s v -l version -d 'Print version'
+
+# ruse run <recipe> [--dry-run]
+complete -c ruse -n '__fish_seen_subcommand_from run' -a '(__ruse_complete run)'
+complete -c ruse -n '__fish_seen_subcommand_from run' -l dry-run \\
+  -d 'Skip LLM calls; print steps that would spend tokens'
+
+# ruse init [--global] [dir]
+complete -c ruse -n '__fish_seen_subcommand_from init' -l global \\
+  -d 'Seed bundled recipes into the user-level recipes dir'
+complete -c ruse -n '__fish_seen_subcommand_from init' -F
+
+# ruse update [flags]
+complete -c ruse -n '__fish_seen_subcommand_from update' -l check \\
+  -d 'Report if an update is available; do not install'
+complete -c ruse -n '__fish_seen_subcommand_from update' -l dev \\
+  -d 'Track the main branch instead of the latest release'
+complete -c ruse -n '__fish_seen_subcommand_from update' -l npm  -d 'Install with npm'
+complete -c ruse -n '__fish_seen_subcommand_from update' -l pnpm -d 'Install with pnpm (default)'
+complete -c ruse -n '__fish_seen_subcommand_from update' -l yarn -d 'Install with yarn'
+
+# ruse completion <bash|zsh|fish>
+complete -c ruse -n '__fish_seen_subcommand_from completion' \\
+  -a '(__ruse_complete completion)'
 `,
 };
 

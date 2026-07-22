@@ -7,6 +7,7 @@ import { statSync, readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { makeKit, Ledger } from './runtime.mjs';
 import { init, initGlobal } from './init.mjs';
+import { update } from './update.mjs';
 
 // Block-letter wordmark shown on bare `ruse`, `--help`, and `--version`. Kept
 // ASCII inside the block so it renders in every terminal; the caption's em-dash
@@ -80,6 +81,8 @@ Usage:
   ruse init --global                     Seed global recipes into <user-recipes>.
   ruse run <recipe> [--dry-run] [-- ...args]
   ruse recipes                           List every recipe visible from cwd.
+  ruse update [--check] [--dev] [--npm|--pnpm|--yarn]
+                                         Check GitHub and (re)install ruse.
   ruse completion <bash|zsh|fish>        Print a shell completion script.
 
 <recipe> can be either a path to a recipe file (e.g. .ruse/foo.recipe.mjs)
@@ -109,7 +112,7 @@ Options:
 
 // Top-level subcommands that `ruse <TAB>` should offer. Kept next to HELP so
 // they stay in sync when new commands are added.
-const SUBCOMMANDS = ['run', 'init', 'recipes', 'completion', 'help'];
+const SUBCOMMANDS = ['run', 'init', 'recipes', 'update', 'completion', 'help'];
 
 async function main(argv) {
   const [cmd, ...rest] = argv;
@@ -134,6 +137,10 @@ async function main(argv) {
   }
   if (cmd === 'recipes') {
     printRecipes(process.cwd());
+    return;
+  }
+  if (cmd === 'update') {
+    await update(rest);
     return;
   }
   if (cmd === 'completion') {

@@ -8,6 +8,14 @@ import { homedir } from 'node:os';
 import { makeKit, Ledger } from './runtime.mjs';
 import { init, initGlobal } from './init.mjs';
 import { update } from './update.mjs';
+import {
+  SCOPES,
+  configPath,
+  defineVariable,
+  formatValue,
+  listAllWithShadows,
+  parseValueArg,
+} from './config.mjs';
 
 // Block-letter wordmark shown on bare `ruse`, `--help`, and `--version`. Kept
 // ASCII inside the block so it renders in every terminal; the caption's em-dash
@@ -83,6 +91,9 @@ Usage:
   ruse recipes                           List every recipe visible from cwd.
   ruse update [--check] [--dev] [--npm|--pnpm|--yarn]
                                          Check GitHub and (re)install ruse.
+  ruse config list [--scope <s>]         List variables (project > user > global).
+  ruse config define <name> <value>      Set a variable (default scope: project).
+    [--scope project|user|global]
   ruse completion <bash|zsh|fish>        Print a shell completion script.
 
 <recipe> can be either a path to a recipe file (e.g. .ruse/foo.recipe.mjs)
@@ -118,8 +129,15 @@ const SUBCOMMANDS = [
   ['init', 'Scaffold a .ruse/ folder (or --global to seed user recipes).'],
   ['recipes', 'List every recipe visible from cwd.'],
   ['update', 'Check GitHub and (re)install ruse.'],
+  ['config', 'Get and set ruse configuration variables.'],
   ['completion', 'Print a shell completion script.'],
   ['help', 'Show help.'],
+];
+
+// Subcommands of `ruse config`, paired with descriptions for completion UIs.
+const CONFIG_SUBCOMMANDS = [
+  ['list', 'List variables (project > user > global).'],
+  ['define', 'Set a variable (default scope: project).'],
 ];
 
 // Flags each subcommand accepts, with descriptions for `_describe`-style
@@ -134,6 +152,7 @@ const FLAGS = {
     ['--pnpm', 'Install with pnpm (default).'],
     ['--yarn', 'Install with yarn.'],
   ],
+  config: [['--scope', 'Scope to act on: project, user, or global.']],
   recipes: [],
   completion: [],
   help: [],
@@ -183,6 +202,10 @@ async function main(argv) {
     await update(rest);
     return;
   }
+  if (cmd === 'config') {
+    await runConfig(rest);
+    return;
+  }
   if (cmd === 'completion') {
     const shell = rest.find((a) => !a.startsWith('-'));
     printCompletion(shell);
@@ -212,6 +235,8 @@ async function main(argv) {
       emit(pairs);
     } else if (target === 'completion') {
       emit(COMPLETION_SHELLS);
+    } else if (target === 'config') {
+      emit(CONFIG_SUBCOMMANDS);
     } else if (target === 'flags' || target.startsWith('flags:')) {
       // `flags:<sub>` — flags valid for that subcommand. Bare `flags` is a
       // safe fallback that returns nothing rather than erroring.
@@ -457,6 +482,161 @@ function printRecipes(cwd) {
   }
 }
 
+/**
+ * Dispatch `ruse config <subcommand>`. Kept in one place so the free/LLM
+ * boundary stays visible from cli.mjs — config is deterministic and cheap;
+ * no LLM here. The three scopes and their precedence live in config.mjs.
+ */
+async function runConfig(argv) {
+  const [sub, ...rest] = argv;
+  if (!sub || sub === '-h' || sub === '--help') {
+    process.stdout.write(CONFIG_HELP);
+    return;
+  }
+  if (sub === 'list') return runConfigList(rest);
+  if (sub === 'define') return runConfigDefine(rest);
+  console.error(`Unknown "ruse config" subcommand "${sub}". Try: list, define.`);
+  process.exitCode = 1;
+}
+
+const CONFIG_HELP = `ruse config — manage user-defined variables
+
+Usage:
+  ruse config list [--scope project|user|global]
+  ruse config define <name> <value> [--scope project|user|global]
+
+Scopes (precedence for reads: project > user > global):
+  project   <nearest .ruse/>/config.json         (checked in with the repo)
+  user      <user-config>/config.json            (per-user, per-machine)
+  global    <user-config>/global.config.json     (per-user, portable)
+
+<user-config> is $RUSE_HOME, else $XDG_CONFIG_HOME/ruse, else ~/.config/ruse.
+
+Values are parsed as JSON when possible so "42", "true", '[1,2]' round-trip
+as their real types; anything that isn't valid JSON is stored as a string.
+
+  ruse config define api_url https://example.com          # string
+  ruse config define retries 3                             # number
+  ruse config define models '["haiku","sonnet"]'           # array
+  ruse config define --scope user default_model haiku
+`;
+
+// `ruse config list` — merged view by default; --scope narrows to one file.
+function runConfigList(argv) {
+  const scope = parseScope(argv, null);
+  const cwd = process.cwd();
+
+  if (scope) {
+    const path = configPath(scope, cwd);
+    if (!path) {
+      process.stdout.write(`(no ${scope} scope available: no .ruse/ found above ${cwd})\n`);
+      return;
+    }
+    // Load through listAllWithShadows so entries all use the same shape,
+    // then filter to just this scope's rows.
+    const rows = listAllWithShadows(cwd).flatMap((e) => {
+      const all = [e, ...(e.shadows ?? [])];
+      return all.filter((r) => r.scope === scope).map((r) => ({ ...r, shadows: [] }));
+    });
+    if (!rows.length) {
+      process.stdout.write(`(no variables in ${scope}: ${path})\n`);
+      return;
+    }
+    process.stdout.write(`${scope}: ${path}\n`);
+    printVarRows(rows.sort((a, b) => a.name.localeCompare(b.name)));
+    return;
+  }
+
+  const rows = listAllWithShadows(cwd);
+  if (!rows.length) {
+    process.stdout.write('No variables defined. Try: ruse config define <name> <value>\n');
+    return;
+  }
+  // Group by winning scope so the reader can see who owns what.
+  const byScope = { project: [], user: [], global: [] };
+  for (const r of rows) byScope[r.scope].push(r);
+  const paths = {
+    project: configPath('project', cwd),
+    user: configPath('user', cwd),
+    global: configPath('global', cwd),
+  };
+  let first = true;
+  for (const s of ['project', 'user', 'global']) {
+    if (!byScope[s].length) continue;
+    if (!first) process.stdout.write('\n');
+    first = false;
+    process.stdout.write(`${s}: ${paths[s] ?? '(unavailable)'}\n`);
+    printVarRows(byScope[s]);
+  }
+}
+
+// Shared row printer: value column, then shadow markers so the user can
+// tell when a lower-precedence scope also defines a name.
+function printVarRows(rows) {
+  const width = Math.max(...rows.map((r) => r.name.length));
+  for (const r of rows) {
+    let line = `  ${r.name.padEnd(width)}  ${formatValue(r.value)}`;
+    if (r.shadows?.length) {
+      const shadowed = r.shadows.map((s) => s.scope).join(', ');
+      line += `   (also in: ${shadowed})`;
+    }
+    process.stdout.write(line + '\n');
+  }
+}
+
+// `ruse config define <name> <value> [--scope ...]`
+function runConfigDefine(argv) {
+  const scope = parseScope(argv, 'project');
+  const positional = argv.filter((a, i) => {
+    if (a === '--scope') return false;
+    if (i > 0 && argv[i - 1] === '--scope') return false;
+    if (a.startsWith('--scope=')) return false;
+    return !a.startsWith('-');
+  });
+  const [name, ...valueParts] = positional;
+  if (!name || valueParts.length === 0) {
+    console.error('Usage: ruse config define <name> <value> [--scope project|user|global]');
+    process.exitCode = 1;
+    return;
+  }
+  // Join remaining positionals so `ruse config define greeting hello world`
+  // does the intuitive thing rather than silently dropping "world".
+  const rawValue = valueParts.join(' ');
+  const value = parseValueArg(rawValue);
+  try {
+    const { path, previous } = defineVariable(name, value, scope, process.cwd());
+    const verb = previous === undefined ? 'defined' : 'updated';
+    process.stdout.write(`${verb} ${name} = ${formatValue(value)} [${scope}]\n  ${path}\n`);
+    if (previous !== undefined) {
+      process.stdout.write(`  previous: ${formatValue(previous)}\n`);
+    }
+  } catch (e) {
+    console.error(e.message);
+    process.exitCode = 1;
+  }
+}
+
+// Parse --scope out of an argv slice. Accepts both `--scope user` and
+// `--scope=user`. Returns `fallback` when absent; throws (via process.exit)
+// on an unknown value so typos don't silently write to the wrong file.
+function parseScope(argv, fallback) {
+  let scope = fallback;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '--scope') {
+      scope = argv[i + 1];
+      i++;
+    } else if (a.startsWith('--scope=')) {
+      scope = a.slice('--scope='.length);
+    }
+  }
+  if (scope != null && !SCOPES.includes(scope)) {
+    console.error(`Unknown scope "${scope}". Use one of: ${SCOPES.join(', ')}.`);
+    process.exit(1);
+  }
+  return scope;
+}
+
 // Shell completion scripts. Handwritten — the tool is small, a framework would
 // weigh more than the whole CLI. Each script calls back into `ruse __complete`
 // so the candidate list stays in one place (Node), not duplicated in shell.
@@ -524,6 +704,10 @@ _ruse() {
   if [ -n "$target" ]; then
     raw="$(ruse __complete "$target" "$cur" 2>/dev/null | cut -f1)"
     COMPREPLY=( $(compgen -W "$raw" -- "$cur") )
+  fi
+  if [ "$sub" = "config" ] && [ "$cword" -eq 2 ]; then
+    COMPREPLY=( $(compgen -W "$(ruse __complete config "$cur" 2>/dev/null)" -- "$cur") )
+    return
   fi
 }
 complete -F _ruse ruse
@@ -598,6 +782,13 @@ _ruse() {
             '(--npm --pnpm --yarn)--pnpm[Install with pnpm (default)]' \\
             '(--npm --pnpm --yarn)--yarn[Install with yarn]'
           ;;
+        config)
+          if (( CURRENT == 2 )); then
+            _ruse_candidates config "\${words[CURRENT]}"
+          else
+            _arguments '--scope[Scope to act on: project, user, or global]'
+          fi
+          ;;
         completion)
           _ruse_candidates completion "\${words[CURRENT]}"
           ;;
@@ -651,6 +842,12 @@ complete -c ruse -n '__fish_seen_subcommand_from update' -l dev \\
 complete -c ruse -n '__fish_seen_subcommand_from update' -l npm  -d 'Install with npm'
 complete -c ruse -n '__fish_seen_subcommand_from update' -l pnpm -d 'Install with pnpm (default)'
 complete -c ruse -n '__fish_seen_subcommand_from update' -l yarn -d 'Install with yarn'
+
+# ruse config <list|define> [--scope <s>]
+complete -c ruse -n '__fish_seen_subcommand_from config' \\
+  -a '(__ruse_complete config)'
+complete -c ruse -n '__fish_seen_subcommand_from config' -l scope \\
+  -d 'Scope to act on: project, user, or global'
 
 # ruse completion <bash|zsh|fish>
 complete -c ruse -n '__fish_seen_subcommand_from completion' \\

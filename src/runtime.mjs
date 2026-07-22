@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, resolve as resolvePath, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { claude } from './claude.mjs';
+import { listAll as listAllVars } from './config.mjs';
 
 /** Per-run accounting so we can report exactly how much LLM was used. */
 export class Ledger {
@@ -65,6 +66,47 @@ const INTERPRETERS = {
 export function makeKit(cfg) {
   const { recipeDir, state, args, ledger, dryRun, log } = cfg;
   const rel = (p) => resolvePath(recipeDir, p);
+
+  // --- Deterministic: read user-defined variables (ruse config) ------------
+  // Resolved once, on first access, and cached for the lifetime of this kit
+  // instance so a recipe sees a consistent snapshot even if the JSON files
+  // change mid-run. Cache is per-kit (per-invocation, effectively per-
+  // `ruse run`) — a fresh process, or a fresh `makeKit` via handoff, re-reads
+  // the files. `listAllVars` applies the same project > user > global
+  // precedence the CLI uses; we flatten to a plain name -> value map so
+  // recipes never care which scope a value came from.
+  let _varCache;
+  function loadVars() {
+    if (_varCache) return _varCache;
+    const out = Object.create(null);
+    for (const entry of listAllVars(process.cwd())) out[entry.name] = entry.value;
+    _varCache = out;
+    return _varCache;
+  }
+  const config = {
+    // Return the merged value for `name`, or undefined if unset. Undefined
+    // matches how `kit.args` / `state` handle absent keys — recipes can
+    // supply their own fallbacks with `??`.
+    get(name) {
+      return loadVars()[name];
+    },
+    // Same lookup but throw when the value is missing, so recipes can fail
+    // loudly at the top instead of silently using undefined downstream.
+    require(name) {
+      const vars = loadVars();
+      if (!(name in vars)) {
+        throw new Error(
+          `Missing required variable "${name}". Define it with: ruse config define ${name} <value>`,
+        );
+      }
+      return vars[name];
+    },
+    // Snapshot of every visible variable, merged across scopes. Copied so
+    // recipes can mutate it without poisoning the cache.
+    all() {
+      return { ...loadVars() };
+    },
+  };
 
   // --- Deterministic: ask the user for input -------------------------------
   async function ask(question, opts = {}) {
@@ -215,7 +257,7 @@ export function makeKit(cfg) {
     return fn(kit);
   }
 
-  return { ask, run, sh, prompt, agent, context, use, handoff, state, args, log };
+  return { ask, run, sh, prompt, agent, context, use, handoff, config, state, args, log };
 }
 
 /**

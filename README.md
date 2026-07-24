@@ -250,6 +250,7 @@ from the merged project + global scope.
 | `config.get(name)` / `config.require(name)` / `config.all()` | free | Read merged `ruse config` variables (project > user > global). |
 | `state` | — | Mutable object threaded across steps and handoffs. |
 | `kit.args` | — | Args passed after `--`. |
+| `kit.cwd` | — | The directory the user was in when they ran `ruse`. Use this to build absolute paths against the user's project — `sh`/`run` and LLM turns already default here, so a globally-installed recipe (from `<user-recipes>`) still operates on the caller's files, not the recipes dir. |
 
 ## How LLM steps work
 

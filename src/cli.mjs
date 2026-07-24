@@ -187,6 +187,14 @@ const TOP_LEVEL_FLAGS = [
 ];
 
 async function main(argv) {
+  // Capture the invocation cwd exactly once, before any subcommand runs. This
+  // is the directory the USER was in when they typed `ruse run …`; it stays
+  // stable even if code below ever ends up calling `process.chdir`. It's what
+  // gets threaded into the recipe kit so scripts, shell commands, and LLM
+  // calls all operate against the user's project, not the recipe's own dir
+  // (which for globally-resolved recipes is ~/.config/ruse/recipes).
+  const userCwd = process.cwd();
+
   const [cmd, ...rest] = argv;
   if (cmd === '--version' || cmd === '-v') {
     maybePrintBanner();
@@ -315,6 +323,7 @@ async function main(argv) {
   const ledger = new Ledger();
   const kit = makeKit({
     recipeDir: dirname(recipePath),
+    userCwd,
     state: {},
     args: passthrough,
     ledger,

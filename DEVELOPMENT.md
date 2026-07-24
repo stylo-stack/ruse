@@ -14,6 +14,8 @@ src/
                  and the ledger that counts LLM calls
   claude.mjs     thin wrapper around the `claude` CLI (`-p --output-format json`)
   init.mjs       `ruse init` scaffolder — drops a starter .ruse/ into a project
+  recipes.mjs    launcher for `ruse recipes new | explain` — spawns an
+                 interactive claude session with the bundled subagent
 examples/        end-user example recipe (used by tests + docs)
 .ruse/           this repo's own recipes (dogfooding)
 .claude/agents/  the three Claude Code subagents (see below)
@@ -58,6 +60,15 @@ up automatically when this folder is the working directory.
 Pick the narrowest one that fits — `recipe-guide` before `recipe-author`,
 `recipe-author` before `ruse-dev`. Using the wrong scope wastes tokens and
 tends to produce over-broad changes.
+
+`recipe-author` and `recipe-guide` are also shipped in the npm tarball
+(`.claude/agents/` is listed in `package.json → files`) so end users can
+invoke them via `ruse recipes new` and `ruse recipes explain` without cloning
+the repo. `ruse-dev` is deliberately not surfaced by the CLI — it is for
+working on ruse itself. See `src/recipes.mjs` for the dispatcher: it reads the
+`.md` files, parses the frontmatter, and passes the agent definition inline
+to `claude --agents` so agent discovery does not depend on the user's local
+`~/.claude/` state.
 
 ## Publishing
 

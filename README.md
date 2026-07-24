@@ -82,6 +82,9 @@ ruse run summarize --dry-run                     # skip LLM calls, show what wou
 ruse run summarize -- --arg1 value               # pass args (kit.args)
 ruse run .ruse/summarize.recipe.mjs              # explicit path still works
 ruse recipes                                     # list every recipe visible from cwd
+ruse recipes new                                 # author a new recipe via the recipe-author agent
+ruse recipes explain                             # ask the recipe-guide agent how the kit works
+ruse edit                                        # open the global ruse dir in your editor
 ruse completion zsh                              # print a shell completion script
 ```
 
@@ -181,6 +184,44 @@ export default async function ({ config, sh, log }) {
 No environment-variable fallback — only values written via `ruse config define`
 are visible. Read judgment is on the recipe: use `.get()` when a default makes
 sense, `.require()` when the recipe cannot run without it.
+
+### Authoring and understanding recipes via an agent
+
+Two subcommands hand you an interactive Claude Code session with an agent
+bundled inside ruse — no need to clone the repo or install anything else:
+
+| Command | Agent | Writes files? |
+|---|---|---|
+| `ruse recipes new` | `recipe-author` | yes — into the **global** ruse dir (`<user-recipes>`) |
+| `ruse recipes explain` | `recipe-guide` | no — read-only |
+
+Both operate at the user (global) scope: `ruse recipes new` writes the recipe
+file, helper scripts, and prompt bodies into `<user-recipes>` (see the table
+above) regardless of where you invoke it. If you want a project-local recipe
+instead, edit files under `.ruse/` directly — that layout is unchanged.
+
+These commands require the `claude` CLI to be installed and on your `PATH`.
+
+After `ruse recipes new` finishes, if the agent actually created or modified
+any files in the global dir, you will be asked whether to open the dir in
+your editor. The prompt is skipped when nothing changed.
+
+### Opening the global dir directly
+
+```bash
+ruse edit           # opens <user-recipes> in $VISUAL, $EDITOR, or a detected IDE
+```
+
+The lookup order matches what `git`/`gh` use:
+
+1. `$VISUAL` (split on whitespace, so `VISUAL="code --wait"` works).
+2. `$EDITOR`.
+3. First of these found on `PATH`: `code`, `cursor`, `windsurf`, `zed`,
+   `subl`, `idea`.
+4. Platform fallback: `open` on macOS, `xdg-open` on Linux.
+
+If nothing is found, `ruse edit` prints a message telling you to set
+`$EDITOR` and exits non-zero.
 
 ## Shell completion
 

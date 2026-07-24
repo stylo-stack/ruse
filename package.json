@@ -1,6 +1,6 @@
 {
   "name": "rational-use",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Orchestrate deterministic scripts and LLM prompts from one recipe. Spend tokens only where judgment is actually needed.",
   "type": "module",
   "bin": {
@@ -15,6 +15,7 @@
   "files": [
     "src/",
     ".ruse/",
+    ".claude/agents/",
     "README.md"
   ],
   "scripts": {

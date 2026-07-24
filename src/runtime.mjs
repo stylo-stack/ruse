@@ -57,6 +57,14 @@ const INTERPRETERS = {
  *
  * @param {object} cfg
  * @param {string} cfg.recipeDir  Directory of the running recipe (for relative paths).
+ * @param {string} cfg.userCwd    Where the user was when they invoked ruse.
+ *                                Used as the default cwd for child processes
+ *                                (sh/run) and for the LLM turn, so a recipe
+ *                                resolved from ~/.config/ruse/recipes still
+ *                                operates on the user's project files rather
+ *                                than the recipes dir. Falls back to
+ *                                process.cwd() only for backwards-compat with
+ *                                any caller that forgot to pass it.
  * @param {object} cfg.state      Shared mutable state, threaded across handoffs.
  * @param {object} cfg.args       Parsed CLI args passed after `--`.
  * @param {Ledger} cfg.ledger     Run accounting.
@@ -65,6 +73,7 @@ const INTERPRETERS = {
  */
 export function makeKit(cfg) {
   const { recipeDir, state, args, ledger, dryRun, log } = cfg;
+  const userCwd = cfg.userCwd ?? process.cwd();
   const rel = (p) => resolvePath(recipeDir, p);
 
   // --- Deterministic: read user-defined variables (ruse config) ------------
@@ -128,21 +137,33 @@ export function makeKit(cfg) {
   }
 
   // --- Deterministic: run a script file (js/bash/ps1/py) -------------------
+  // The script *file* is resolved against recipeDir (scripts ship with the
+  // recipe), but the child's working directory is userCwd so the script
+  // operates on the user's project — critical for globally-installed recipes
+  // whose recipeDir is ~/.config/ruse/recipes, not somewhere the user cares
+  // about. Callers can still override with an explicit opts.cwd.
   async function run(scriptPath, opts = {}) {
     const abs = rel(scriptPath);
     const ext = extname(abs).toLowerCase();
     const interp = INTERPRETERS[ext];
     if (!interp) throw new Error(`Don't know how to run "${scriptPath}" (extension ${ext}).`);
     ledger.scriptSteps++;
-    return execCapture(interp[0], [...interp.slice(1), abs, ...(opts.args ?? [])], opts);
+    return execCapture(
+      interp[0],
+      [...interp.slice(1), abs, ...(opts.args ?? [])],
+      { cwd: userCwd, ...opts },
+    );
   }
 
   // --- Deterministic: run an inline shell command --------------------------
+  // Same rule as `run`: default cwd is userCwd, so `sh('ls')` or `sh('git
+  // status')` in a global recipe still lists the user's project, not the
+  // global recipes dir.
   async function sh(command, opts = {}) {
     ledger.scriptSteps++;
     const shell = process.platform === 'win32' ? 'powershell' : 'bash';
     const flag = process.platform === 'win32' ? '-Command' : '-c';
-    return execCapture(shell, [flag, command], opts);
+    return execCapture(shell, [flag, command], { cwd: userCwd, ...opts });
   }
 
   // --- LLM: one prompt turn (the only token-spending call) -----------------
@@ -179,13 +200,15 @@ export function makeKit(cfg) {
       return { text: '', data: opts.schema ? null : undefined, sessionId: sessionId ?? '', costUsd: 0, usage: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 }, raw: {} };
     }
     ledger.llmCalls++;
-    // LLM steps run at the project root (process.cwd) by default so Claude sees
-    // the project's files/CLAUDE.md. Prompt *files* already resolved via rel().
+    // LLM steps run at the user's invocation cwd by default so Claude sees the
+    // project's files/CLAUDE.md — not the recipe's own directory, which for a
+    // globally-installed recipe would be ~/.config/ruse/recipes. Prompt
+    // *files* already resolved via rel(). Callers can override with opts.cwd.
     const label = spinnerLabel(opts);
     const stop = startSpinner(label);
     let res;
     try {
-      res = await claude(text, { cwd: process.cwd(), ...opts, sessionId });
+      res = await claude(text, { cwd: userCwd, ...opts, sessionId });
     } finally {
       stop();
     }
@@ -204,7 +227,7 @@ export function makeKit(cfg) {
           fix = await claude(
             `Your previous reply did not parse as JSON matching the schema: ${parsed.error}.\n` +
               `Resend ONLY the corrected JSON value — no prose, no fences.`,
-            { cwd: process.cwd(), ...opts, sessionId: res.sessionId },
+            { cwd: userCwd, ...opts, sessionId: res.sessionId },
           );
         } finally {
           stop2();
@@ -257,7 +280,12 @@ export function makeKit(cfg) {
     return fn(kit);
   }
 
-  return { ask, run, sh, prompt, agent, context, use, handoff, config, state, args, log };
+  // `cwd` is exposed so recipes can build absolute paths against the user's
+  // project (e.g. `join(cwd, 'README.md')`) without reaching for process.cwd().
+  // This matters most for globally-resolved recipes: their file/import
+  // resolution against `recipeDir` is a different concept from where the user
+  // wants to operate.
+  return { ask, run, sh, prompt, agent, context, use, handoff, config, state, args, log, cwd: userCwd };
 }
 
 /**

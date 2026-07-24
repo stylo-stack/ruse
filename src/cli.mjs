@@ -16,6 +16,9 @@ import {
   listAllWithShadows,
   parseValueArg,
 } from './config.mjs';
+import { runRecipesSub, recipesSubcommands } from './recipes.mjs';
+import { openInEditor, editorCandidatesHint } from './editor.mjs';
+import { mkdirSync } from 'node:fs';
 
 // Block-letter wordmark shown on bare `ruse`, `--help`, and `--version`. Kept
 // ASCII inside the block so it renders in every terminal; the caption's em-dash
@@ -89,6 +92,14 @@ Usage:
   ruse init --global                     Seed global recipes into <user-recipes>.
   ruse run <recipe> [--dry-run] [-- ...args]
   ruse recipes                           List every recipe visible from cwd.
+  ruse recipes new                       Author a new recipe interactively via
+                                         the recipe-author agent (writes into
+                                         the global ruse dir).
+  ruse recipes explain                   Ask the recipe-guide agent how the kit
+                                         works, patterns, and the "minimize LLM
+                                         use" philosophy. Read-only.
+  ruse edit                              Open the global ruse dir in your editor
+                                         ($VISUAL, $EDITOR, or a detected IDE).
   ruse update [--check] [--dev] [--npm|--pnpm|--yarn]
                                          Check GitHub and (re)install ruse.
   ruse config list [--scope <s>]         List variables (project > user > global).
@@ -127,7 +138,8 @@ Options:
 const SUBCOMMANDS = [
   ['run', 'Run a recipe (deterministic + LLM steps).'],
   ['init', 'Scaffold a .ruse/ folder (or --global to seed user recipes).'],
-  ['recipes', 'List every recipe visible from cwd.'],
+  ['recipes', 'List recipes, or `new`/`explain` to author/understand via agent.'],
+  ['edit', 'Open the global ruse dir in your editor.'],
   ['update', 'Check GitHub and (re)install ruse.'],
   ['config', 'Get and set ruse configuration variables.'],
   ['completion', 'Print a shell completion script.'],
@@ -154,6 +166,7 @@ const FLAGS = {
   ],
   config: [['--scope', 'Scope to act on: project, user, or global.']],
   recipes: [],
+  edit: [],
   completion: [],
   help: [],
 };
@@ -174,6 +187,14 @@ const TOP_LEVEL_FLAGS = [
 ];
 
 async function main(argv) {
+  // Capture the invocation cwd exactly once, before any subcommand runs. This
+  // is the directory the USER was in when they typed `ruse run …`; it stays
+  // stable even if code below ever ends up calling `process.chdir`. It's what
+  // gets threaded into the recipe kit so scripts, shell commands, and LLM
+  // calls all operate against the user's project, not the recipe's own dir
+  // (which for globally-resolved recipes is ~/.config/ruse/recipes).
+  const userCwd = process.cwd();
+
   const [cmd, ...rest] = argv;
   if (cmd === '--version' || cmd === '-v') {
     maybePrintBanner();
@@ -195,7 +216,24 @@ async function main(argv) {
     return;
   }
   if (cmd === 'recipes') {
-    printRecipes(process.cwd());
+    // Bare `ruse recipes` still lists what's visible. `ruse recipes new` and
+    // `ruse recipes explain` hand off to the packaged Claude Code subagents so
+    // end users can author/understand recipes without cloning the ruse repo.
+    // `ruse recipes --help` (or -h/help) prints the subcommand help.
+    if (rest.includes('-h') || rest.includes('--help') || rest[0] === 'help') {
+      await runRecipesSub(undefined, userRecipesDir());
+      return;
+    }
+    const sub = rest.find((a) => !a.startsWith('-'));
+    if (!sub) {
+      printRecipes(process.cwd());
+      return;
+    }
+    await runRecipesSub(sub, userRecipesDir());
+    return;
+  }
+  if (cmd === 'edit') {
+    editGlobalDir();
     return;
   }
   if (cmd === 'update') {
@@ -237,6 +275,10 @@ async function main(argv) {
       emit(COMPLETION_SHELLS);
     } else if (target === 'config') {
       emit(CONFIG_SUBCOMMANDS);
+    } else if (target === 'recipes') {
+      // Nested subcommands under `ruse recipes` — offered as candidates when
+      // the user has typed `ruse recipes <TAB>`.
+      emit(recipesSubcommands());
     } else if (target === 'flags' || target.startsWith('flags:')) {
       // `flags:<sub>` — flags valid for that subcommand. Bare `flags` is a
       // safe fallback that returns nothing rather than erroring.
@@ -281,6 +323,7 @@ async function main(argv) {
   const ledger = new Ledger();
   const kit = makeKit({
     recipeDir: dirname(recipePath),
+    userCwd,
     state: {},
     args: passthrough,
     ledger,
@@ -637,6 +680,31 @@ function parseScope(argv, fallback) {
   return scope;
 }
 
+// `ruse edit` — open the global recipes dir in whatever editor the user has
+// configured. Creates the dir if missing (same `mkdir -p` semantics as the
+// recipes subcommands) so a fresh install can still `ruse edit` its way to
+// somewhere useful. Exits non-zero when no editor can be found; unlike the
+// post-authoring prompt, this command has no fallback behavior worth having.
+function editGlobalDir() {
+  const dir = userRecipesDir();
+  try {
+    mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    process.stderr.write(`Failed to create ${dir}: ${err.message}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  const ed = openInEditor(dir);
+  if (!ed) {
+    process.stderr.write(
+      `No editor found. Set $EDITOR or install one of: ${editorCandidatesHint()}.\n`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(`Opening ${dir} with ${ed.cmd}\n`);
+}
+
 // Shell completion scripts. Handwritten — the tool is small, a framework would
 // weigh more than the whole CLI. Each script calls back into `ruse __complete`
 // so the candidate list stays in one place (Node), not duplicated in shell.
@@ -694,6 +762,7 @@ _ruse() {
         case "$sub" in
           run)        target="run" ;;
           completion) target="completion" ;;
+          recipes)    target="recipes" ;;
           *)          target="" ;;
         esac
         ;;
@@ -792,7 +861,13 @@ _ruse() {
         completion)
           _ruse_candidates completion "\${words[CURRENT]}"
           ;;
-        recipes|help)
+        recipes)
+          _ruse_candidates recipes "\${words[CURRENT]}"
+          ;;
+        edit)
+          # \`ruse edit\` takes no args or flags — nothing to complete.
+          ;;
+        help)
           ;;
       esac
       ;;
@@ -852,6 +927,13 @@ complete -c ruse -n '__fish_seen_subcommand_from config' -l scope \\
 # ruse completion <bash|zsh|fish>
 complete -c ruse -n '__fish_seen_subcommand_from completion' \\
   -a '(__ruse_complete completion)'
+
+# ruse recipes [new|explain]
+complete -c ruse -n '__fish_seen_subcommand_from recipes' \\
+  -a '(__ruse_complete recipes)'
+
+# ruse edit — no args or flags, but the top-level \`complete -f\` above already
+# disables file completion, so nothing else is needed here.
 `,
 };
 
